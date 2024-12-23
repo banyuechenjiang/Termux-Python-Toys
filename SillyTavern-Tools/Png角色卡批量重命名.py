@@ -8,6 +8,7 @@ import json
 import os
 import re
 import collections
+import subprocess
 
 def read_png_metadata(png_file_path):
     """读取 PNG 文件中的元数据信息，并返回关键字为 "chara" 的文本内容。"""
@@ -32,40 +33,33 @@ def read_png_metadata(png_file_path):
             print(f"读取 PNG 文件 {png_file_path} 失败：{e}")
         return None
 
+_illegal_chars_pattern = re.compile(r'[\\/:*?"<>|]')
 
 def sanitize_filename(filename):
     """将文件名中的非法字符替换为下划线。"""
-    return re.sub(r'[\\/:*?"<>|]', '_', filename)
-
+    return _illegal_chars_pattern.sub('_', filename)
 
 def rename_png_files_recursive(directory):
     """递归地重命名指定目录及其子目录中符合角色卡结构的 PNG 文件。"""
 
-    renamed_files = collections.defaultdict(dict)  # 使用字典存储重命名信息
+    renamed_files = collections.defaultdict(dict)  # 用于存储按目录的重命名信息
     i = 0  # 用于生成唯一的文件名
 
     for root, _, files in os.walk(directory):
         count = 0  # 初始化每个路径的计数器
+        renamed_in_path = {} # 存储当前路径下的重命名信息
         for file in files:
             if file.endswith(".png"):
                 png_file_path = os.path.join(root, file)
                 metadata = read_png_metadata(png_file_path)
 
-                # 检查 metadata 是否存在且是有效的 JSON 格式
                 if metadata:
                     try:
                         data = json.loads(metadata)
-
-                        # 提取角色卡名称，优先使用 name 字段，如果不存在则使用 displayName 字段
                         name_value = sanitize_filename(data.get("name") or data.get("displayName", ""))
-
-                        # 提取第一个标签作为标签值, 处理 tags 列表为空的情况
                         tags_value = sanitize_filename(data.get("tags", [""])[0]) if data.get("tags") else ""
-
-                        # 提取创建者信息，优先使用 creator 字段，如果不存在则使用 createBy 字段
                         creator_value = sanitize_filename(data.get("creator") or data.get("createBy", ""))
 
-                        # 使用 if-else 语句构建文件名
                         new_filename_parts = ["卡"]
                         if tags_value:
                             new_filename_parts.append(tags_value)
@@ -75,39 +69,51 @@ def rename_png_files_recursive(directory):
                             new_filename_parts.append(creator_value)
 
                         file_size_kb = os.path.getsize(png_file_path) // 1024
-                        new_filename_parts.append(str(file_size_kb) + "KB")
+                        new_filename_parts.append(f"{file_size_kb}KB")
                         new_filename_parts.append(str(i))
 
                         new_filename = "-".join(new_filename_parts) + ".png"
                         new_filepath = os.path.join(root, new_filename)
 
-                        os.rename(png_file_path, new_filepath)
-                        # 获取相对路径
-                        relative_old_path = os.path.relpath(png_file_path, directory)
-                        relative_new_path = os.path.relpath(new_filepath, directory)
+                        old_filename = os.path.basename(png_file_path)
+                        new_filename_base = os.path.basename(new_filepath)
 
-                        # 将重命名信息存储到字典中, 只存储文件名
-                        renamed_files[os.path.relpath(root, directory)][os.path.basename(relative_old_path)] = os.path.basename(relative_new_path)
+                        os.rename(png_file_path, new_filepath)
+
+                        # 存储到按目录的字典
+                        relative_root = os.path.relpath(root, directory)
+                        renamed_in_path[old_filename] = new_filename_base
 
                         i += 1
-                        count += 1  # 增加计数器
+                        count += 1
 
                     except json.JSONDecodeError:
                         print(f"文件 {os.path.relpath(png_file_path, directory)} 的元数据不是有效的 JSON 格式。")
 
-        # 更新路径后的计数
-        if count > 0:
+        if renamed_in_path:
+            renamed_files[os.path.relpath(root, directory)] = renamed_in_path
             renamed_files[os.path.relpath(root, directory)]["count"] = count
 
-    # 打印类似 YAML 的输出
+    # 打印按目录的重命名信息并准备剪贴板内容
+    clipboard_string = ""
     for path, items in renamed_files.items():
-        if items.get('count', 0) > 0:  # 忽略没有重命名文件的路径
-            print(f"{path}: ({items.get('count', 0)})")  # 打印路径和计数
+        if items.get('count', 0) > 0:
+            print(f"{path}: ({items.get('count', 0)})")
+            clipboard_string += f"{path}: ({items.get('count', 0)})\n"
             for old_name, new_name in items.items():
                 if old_name != "count":
-                    print(f"  - {old_name} -> {new_name}")  # 打印重命名信息
+                    print(f"  - {old_name} -> {new_name}")
+                    clipboard_string += f"  - {old_name} -> {new_name}\n"
 
+    # 写入剪贴板
+    if clipboard_string:
+        try:
+            process = subprocess.Popen(['termux-clipboard-set'], stdin=subprocess.PIPE, text=True)
+            process.communicate(clipboard_string)
+            print("\n重命名信息已复制到剪贴板。")
+        except FileNotFoundError:
+            print("\ntermux-clipboard-set 命令未找到，请确保已安装 Termux API。")
 
 if __name__ == "__main__":
-    download_path = os.path.expanduser("~/storage/shared/Download") 
+    download_path = os.path.expanduser("~/storage/shared/Download")
     rename_png_files_recursive(download_path)
