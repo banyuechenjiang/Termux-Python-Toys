@@ -25,22 +25,37 @@ def calculate_elements(year):
 
 def get_time_as_traditional_chinese_hour(hour, minute):
     chinese_hours = {
-        0: "子", 1: "丑", 2: "寅", 3: "卯", 4: "辰", 5: "巳",
-        6: "午", 7: "未", 8: "申", 9: "酉", 10: "戌", 11: "亥"
+        23: "子", 1: "丑", 3: "寅", 5: "卯", 7: "辰", 9: "巳",
+        11: "午", 13: "未", 15: "申", 17: "酉", 19: "戌", 21: "亥"
     }
-    chinese_quarters = {
-        0: "初", 1: "正", 2: "二", 3: "三", 4: "四", 5: "五", 6: "六", 7: "七", 8: "八"
-    }
-    k = minute // 15
-    hour_str = chinese_hours.get(hour % 12, "未知")
-    k_str = chinese_quarters.get(k, "未知")
-    return f"{hour_str}時{k_str}刻"
+
+    shichen_hour = hour % 24
+    current_shichen_name = ""
+    for start_hour, shichen_name in chinese_hours.items():
+        if (start_hour <= shichen_hour < start_hour + 2) or (start_hour == 23 and shichen_hour < 1):
+            current_shichen_name = shichen_name
+            break
+
+    minute_in_shichen = minute % 120
+
+    quarter_index = minute_in_shichen // 15
+    if minute_in_shichen < 60:
+        shi_segment = "初"
+    else:
+        shi_segment = "正"
+        quarter_index -= 4
+
+    quarter_numbers = ["一", "二", "三", "四"]
+    quarter_number_name = quarter_numbers[quarter_index]
+
+    return f"{current_shichen_name}時{shi_segment}{quarter_number_name}刻"
+
 
 def calculate_fantasy_year_period(year):
     if year < 1885:
         return "幻想郷の遥かな昔"
     else:
-        period = min(year - 1885, 200)  # 将季限制在 200 以内
+        period = min(year - 1885, 200)
         return convert_to_chinese_numerals(period) + "季"
 
 
@@ -58,7 +73,7 @@ def convert_to_chinese_numerals(num):
         tens = num // 10
         ones = num % 10
         return chinese_numerals[tens] + "十" + (chinese_numerals[ones] if ones != 0 else "")
-    elif num <= 200:  # 处理到 200
+    elif num <= 200:
         hundreds = num // 100
         remainder = num % 100
         return chinese_numerals[hundreds * 100] + (convert_to_chinese_numerals(remainder) if remainder != 0 else "")
@@ -75,25 +90,36 @@ def main():
     year, month, day, hour, minute = now.year, now.month, now.day, now.hour, now.minute
     weekday = now.weekday()
 
-    try:
-        sansei_element, shiki_element, gogyo_element = calculate_elements(year)
-        japanese_week = convert_to_japanese_week(weekday)
-        current_time_traditional = get_time_as_traditional_chinese_hour(hour, minute)
-        month_name = japanese_month_names.get(month, "无效月份")
-        fantasy_period = calculate_fantasy_year_period(year)
+    sansei_element, shiki_element, gogyo_element = calculate_elements(year)
+    japanese_week = convert_to_japanese_week(weekday)
+    current_time_traditional = get_time_as_traditional_chinese_hour(hour, minute)
+    month_name = japanese_month_names.get(month, "无效月份")
+    fantasy_period = calculate_fantasy_year_period(year)
 
-        # 使用 f-string 格式化输出，并居中对齐
-        print(f"{year}/{month:02}/{day:02} {weekday} {hour:02}:{minute:02}".center(40))
-        print("".center(40, "─"))  # 使用填充字符创建分隔线
-        print(f"{sansei_element}と{shiki_element}と{gogyo_element}の年".center(40))
-        print(f"(第{fantasy_period})".center(40))
-        print("".center(40, "─"))
-        print(f"{month_name}".center(40))
-        print(f"{current_time_traditional}".center(40))
-        print(f"曜日：{japanese_week}".center(40))
+    date_time_str = f"{year}/{month:02}/{day:02} {weekday} {hour:02}:{minute:02}"
+    year_element_str_lines = [
+        f"{sansei_element}と{shiki_element}と{gogyo_element}の年",
+        f"(第{fantasy_period})"
+    ]
+    month_time_str_lines = [
+        f"{month_name}",
+        f"{current_time_traditional}",
+        f"曜日：{japanese_week}"
+    ]
 
-    except Exception as e:
-        print(f"An unexpected error occurred: {e}")
+    border_width = 40
+    top_border = "┏" + "━" * (border_width - 2) + "┓"
+    bottom_border = "┗" + "━" * (border_width - 2) + "┛"
+
+    print(top_border.center(40))
+    print(center_text(date_time_str, border_width))
+    print(center_text("", border_width))
+    for line in year_element_str_lines:
+        print(center_text(line, border_width))
+    print(center_text("", border_width))
+    for line in month_time_str_lines:
+        print(center_text(line, border_width))
+    print(bottom_border.center(40))
 
 
 if __name__ == "__main__":
