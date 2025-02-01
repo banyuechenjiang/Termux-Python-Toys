@@ -9,6 +9,7 @@ import os
 import re
 import collections
 import subprocess
+import time
 
 def read_png_metadata(png_file_path):
     """读取 PNG 文件中的元数据信息，并返回关键字为 "chara" 的文本内容。"""
@@ -41,13 +42,17 @@ def sanitize_filename(filename):
 
 def rename_png_files_recursive(directory):
     """递归地重命名指定目录及其子目录中符合角色卡结构的 PNG 文件。"""
-
-    renamed_files = collections.defaultdict(dict)  # 用于存储按目录的重命名信息
-    i = 0  # 用于生成唯一的文件名
+    renamed_files = collections.defaultdict(dict)
+    i = 0
+    clipboard_string = ""
+    #  修改 duplicate_charas 为嵌套 defaultdict，用于按角色名和路径分组重复文件
+    duplicate_charas = collections.defaultdict(lambda: collections.defaultdict(list))
+    name_value_counts = collections.defaultdict(int)
+    clipboard_duplicate_string = "" # 初始化用于存储重复卡信息的剪贴板字符串
 
     for root, _, files in os.walk(directory):
-        count = 0  # 初始化每个路径的计数器
-        renamed_in_path = {} # 存储当前路径下的重命名信息
+        count = 0
+        renamed_in_path = {}
         for file in files:
             if file.endswith(".png"):
                 png_file_path = os.path.join(root, file)
@@ -60,11 +65,18 @@ def rename_png_files_recursive(directory):
                         tags_value = sanitize_filename(data.get("tags", [""])[0]) if data.get("tags") else ""
                         creator_value = sanitize_filename(data.get("creator") or data.get("createBy", ""))
 
+                        name_value_counts[name_value] += 1
+                        suffix = ""
+                        if name_value_counts[name_value] > 1:
+                            suffix = f"-{name_value_counts[name_value] - 1}"
+
                         new_filename_parts = ["卡"]
                         if tags_value:
                             new_filename_parts.append(tags_value)
                         if name_value:
                             new_filename_parts.append(name_value)
+                            if suffix:
+                                new_filename_parts.append(suffix)
                         if creator_value:
                             new_filename_parts.append(creator_value)
 
@@ -80,39 +92,70 @@ def rename_png_files_recursive(directory):
 
                         os.rename(png_file_path, new_filepath)
 
-                        # 存储到按目录的字典
                         relative_root = os.path.relpath(root, directory)
                         renamed_in_path[old_filename] = new_filename_base
+
+                        if name_value:
+                            #  将文件名添加到按角色名和路径分组的字典中
+                            duplicate_charas[name_value][root].append(new_filename_base)
 
                         i += 1
                         count += 1
 
                     except json.JSONDecodeError:
                         print(f"文件 {os.path.relpath(png_file_path, directory)} 的元数据不是有效的 JSON 格式。")
+        if count > 0: #  只有当 count > 0 时，才输出路径和重命名信息
+            print(f"{os.path.relpath(root, directory)}: ({count})") #  添加 count 输出
+            clipboard_string += f"{os.path.relpath(root, directory)}: ({count})\n" # 添加 count 输出
+            for old_filename, new_filename_base in renamed_in_path.items():
+                print(f"  - {old_filename} -> {new_filename_base}")
+                clipboard_string += f"  - {old_filename} -> {new_filename_base}\n"
 
-        if renamed_in_path:
+
             renamed_files[os.path.relpath(root, directory)] = renamed_in_path
             renamed_files[os.path.relpath(root, directory)]["count"] = count
+            renamed_files[os.path.relpath(root, directory)]["clipboard_string_path"] = f"{os.path.relpath(root, directory)}: ({count})\n"
 
-    # 打印按目录的重命名信息并准备剪贴板内容
-    clipboard_string = ""
-    for path, items in renamed_files.items():
-        if items.get('count', 0) > 0:
-            print(f"{path}: ({items.get('count', 0)})")
-            clipboard_string += f"{path}: ({items.get('count', 0)})\n"
-            for old_name, new_name in items.items():
-                if old_name != "count":
-                    print(f"  - {old_name} -> {new_name}")
-                    clipboard_string += f"  - {old_name} -> {new_name}\n"
+    has_duplicates = False
+    print("\n" + "-" * 30 + "\n" + "-" * 30 + "\n" + "-" * 30) #  更换为三行分隔符
+    time.sleep(2) # 暂停 2 秒
+    print("重复的角色卡:")
+    if duplicate_charas: #  只有当 duplicate_charas 不为空时才构建重复卡信息的剪贴板字符串
+        for name, path_dict in duplicate_charas.items(): #  path_dict 是路径到文件名列表的字典
+            if len(path_dict) > 1 or sum(len(files) for files in path_dict.values()) > 1: # 检查重复文件数量
+                has_duplicates = True
+                print(f"{name}：") #  输出角色卡名
+                clipboard_duplicate_string += f"{name}：\n" # 添加到重复卡剪贴板字符串
+                for root, filenames in path_dict.items(): # 遍历路径和文件名列表
+                    relative_path = os.path.relpath(root, os.path.expanduser("~/storage/shared/Download")) # 获取相对路径
+                    print(f"　路径：{relative_path}") #  输出路径
+                    clipboard_duplicate_string += f"　路径：{relative_path}\n" # 添加到重复卡剪贴板字符串
+                    for filename in filenames: # 遍历文件名列表
+                        print(f"　　－　{filename}") # 输出文件名
+                        clipboard_duplicate_string += f"　　－　{filename}\n" # 添加到重复卡剪贴板字符串
 
-    # 写入剪贴板
+    if not has_duplicates:
+        print("  无")
+        clipboard_duplicate_string += "  无\n" #  即使没有重复，也添加到重复卡剪贴板字符串，方便判断是否写入成功
+
+    # 优先写入重复项目信息到剪贴板
+    if clipboard_duplicate_string:
+        try:
+            process = subprocess.Popen(['termux-clipboard-set'], stdin=subprocess.PIPE, text=True)
+            process.communicate(clipboard_duplicate_string)
+            print("\n重复角色卡信息已复制到剪贴板。") #  提示信息更具体
+        except FileNotFoundError:
+            print("\ntermux-clipboard-set 命令未找到，请确保已安装 Termux API。")
+
+    #  然后写入完整的重命名信息
     if clipboard_string:
         try:
             process = subprocess.Popen(['termux-clipboard-set'], stdin=subprocess.PIPE, text=True)
             process.communicate(clipboard_string)
-            print("\n重命名信息已复制到剪贴板。")
+            print("\n完整的重命名信息已复制到剪贴板。") # 提示信息更具体
         except FileNotFoundError:
             print("\ntermux-clipboard-set 命令未找到，请确保已安装 Termux API。")
+
 
 if __name__ == "__main__":
     download_path = os.path.expanduser("~/storage/shared/Download")
