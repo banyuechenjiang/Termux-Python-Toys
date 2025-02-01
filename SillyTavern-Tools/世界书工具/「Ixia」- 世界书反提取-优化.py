@@ -125,9 +125,11 @@ def process_entry(entry_data: dict, output_root_dir: str, output_file_ext: str, 
     """
     print(f"\n处理条目 {processed_entries_count}/{total_entries} (ID: {entry_id})...", end="")
 
-    if is_metadata_entry(entry_data):
+    # 修改处： 只有当id:0确实为【说明】条目才跳过，否则正常提取
+    if entry_data.get('comment') == "【说明】" and entry_id == '0':
         print(f" 跳过 \"【说明】\" 条目, 该条目通常包含世界书元数据。", end="")
         return
+
 
     folder_name = extract_folder_name(entry_data)
     if not folder_name:
