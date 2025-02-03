@@ -1,3 +1,4 @@
+
 import base64
 import zlib
 from PIL import Image
@@ -9,7 +10,7 @@ import re
 import collections
 
 def read_png_metadata(png_file_path):
-    """读取 PNG 文件中的元数据信息，并返回关键字为 "chara" 的文本内容。"""
+    # 读取 PNG 文件中的元数据信息，并返回关键字为 "chara" 的文本内容。
     try:
         with open(png_file_path, 'rb') as f:
             reader = png.Reader(file=f)
@@ -30,11 +31,11 @@ def read_png_metadata(png_file_path):
         return None
 
 def sanitize_filename(filename):
-    """将文件名中的非法字符替换为下划线，保留空格。"""
+    # 将文件名中的非法字符替换为下划线，保留空格。
     return re.sub(r'[\\/:*?"<>|\r\n]', '_', filename)
 
 def rename_png_files_recursive(directory, reset_counter=False):
-    """递归地重命名指定目录及其子目录中符合角色卡结构的 PNG 文件。"""
+    # 递归地重命名指定目录及其子目录中符合角色卡结构的 PNG 文件。
 
     renamed_files = collections.defaultdict(dict)
     duplicate_charas = collections.defaultdict(lambda: collections.defaultdict(list))
@@ -149,18 +150,22 @@ def main():
 
     elif choice == '2':
         documents_path = os.path.join(os.path.expanduser("~"), "Documents")
-        print(f"\n在文档 (Documents) 目录下查找 SillyTavern 文件夹...")
-
-        for root, dirs, _ in os.walk(documents_path):
-            for dir_name in dirs:
-                if dir_name == "SillyTavern":
-                    sillytavern_dir_path = os.path.join(root, dir_name)
-                    characters_path = os.path.join(sillytavern_dir_path, "data", "default-user", "characters")
-                    if os.path.isdir(characters_path):
-                        print(f"\n处理 SillyTavern Characters 路径: {characters_path}")
-                        rename_png_files_recursive(characters_path, reset_counter=True)
-                    else:
-                        print(f"警告: 路径 {characters_path} 不存在。跳过。")
+        print("\n警告: 重命名角色卡文件可能会影响到基于角色卡名称命名的 SillyTavern 聊天记录文件夹。\n继续操作可能会导致聊天记录文件夹与角色卡失去关联。") # 提前显示警告
+        confirmation = input("是否继续重命名 SillyTavern 角色卡? (yes/no): ").lower() # 提前请求确认
+        if confirmation == 'yes': # 确认 yes 后才查找路径
+            print(f"\n在文档 (Documents) 目录下查找 SillyTavern 文件夹...")
+            for root, dirs, _ in os.walk(documents_path):
+                for dir_name in dirs:
+                    if dir_name == "SillyTavern":
+                        sillytavern_dir_path = os.path.join(root, dir_name)
+                        characters_path = os.path.join(sillytavern_dir_path, "data", "default-user", "characters")
+                        if os.path.isdir(characters_path):
+                            print(f"\n处理 SillyTavern Characters 路径: {characters_path}")
+                            rename_png_files_recursive(characters_path, reset_counter=True)
+                        else:
+                            print(f"警告: 路径 {characters_path} 不存在。跳过。")
+        else: # 用户选择 no
+            print("操作已取消。")
 
 if __name__ == "__main__":
     main()
