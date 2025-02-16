@@ -1,16 +1,18 @@
-
 import base64
 import zlib
-from PIL import Image
 import sys
 import png
 import json
 import os
 import re
 import collections
+import tkinter as tk
+from tkinter import filedialog
+import time
+
 
 def read_png_metadata(png_file_path):
-    # 读取 PNG 文件中的元数据信息，并返回关键字为 "chara" 的文本内容。
+    """读取 PNG 文件中的元数据，返回 "chara" 关键字的文本内容。"""
     try:
         with open(png_file_path, 'rb') as f:
             reader = png.Reader(file=f)
@@ -30,16 +32,22 @@ def read_png_metadata(png_file_path):
             print(f"读取 PNG 文件 {png_file_path} 失败：{e}")
         return None
 
+
 def sanitize_filename(filename):
-    # 将文件名中的非法字符替换为下划线，保留空格。
+    """将文件名中的非法字符替换为下划线，保留空格。"""
     return re.sub(r'[\\/:*?"<>|\r\n]', '_', filename)
 
+
 def rename_png_files_recursive(directory, reset_counter=False):
-    # 递归地重命名指定目录及其子目录中符合角色卡结构的 PNG 文件。
+    """
+    递归地重命名指定目录及其子目录中符合角色卡结构的 PNG 文件。
+    结合了两个脚本的功能，用于比较重复，并简化命名。
+    """
 
     renamed_files = collections.defaultdict(dict)
     duplicate_charas = collections.defaultdict(lambda: collections.defaultdict(list))
     name_value_counts = collections.defaultdict(int)
+    processed_files = set()  # 用于跟踪已处理的文件，防止重复处理
 
     # 根据 reset_counter 参数决定是否重置计数器
     if reset_counter:
@@ -53,54 +61,61 @@ def rename_png_files_recursive(directory, reset_counter=False):
         for file in files:
             if file.endswith(".png"):
                 png_file_path = os.path.join(root, file)
+
+                # 检查文件是否已经被处理过
+                if png_file_path in processed_files:
+                    continue
+                processed_files.add(png_file_path)
+
                 metadata = read_png_metadata(png_file_path)
 
-            if metadata:
-                try:
-                    data = json.loads(metadata)
-                    name_value = sanitize_filename(data.get("name") or data.get("displayName", ""))
-                    tags_value = sanitize_filename(data.get("tags", [""])[0]) if data.get("tags") else ""
-                    creator_value = sanitize_filename(data.get("creator") or data.get("createBy", ""))
+                if metadata is not None:  # 确保 metadata 被成功赋值
+                    try:
+                        data = json.loads(metadata)
+                        name_value = sanitize_filename(data.get("name") or data.get("displayName", ""))
+                        tags_value = sanitize_filename(data.get("tags", [""])[0]) if data.get("tags") else ""  # 仍然读取
+                        creator_value = sanitize_filename(data.get("creator") or data.get("createBy", ""))  # 仍然读取
 
-                    name_value_counts[name_value] += 1
-                    suffix = ""
-                    if name_value_counts[name_value] > 1:
-                        suffix = f"-{name_value_counts[name_value] - 1}"
+                        name_value_counts[name_value] += 1
+                        suffix = ""
+                        if name_value_counts[name_value] > 1:
+                            suffix = f"-{name_value_counts[name_value] - 1}"
 
-                    new_filename_parts = ["卡"]
-
-                    if tags_value:
-                        new_filename_parts.append(f"[{tags_value}]")
-                    if name_value:
-                        new_filename_parts.append(name_value)
+                        # 简化文件名：只包含 name, 计数器(如果有), 文件大小, 和 i
+                        file_size_kb = os.path.getsize(png_file_path) // 1024
+                        new_filename_parts = []
+                        if name_value:
+                            new_filename_parts.append(name_value)
                         if suffix:
                             new_filename_parts.append(suffix)
-                    if creator_value:
-                        new_filename_parts.append(f"({creator_value})") # 创建者用 () 包裹
 
-                    file_size_kb = os.path.getsize(png_file_path) // 1024
-                    new_filename_parts.append(f"{file_size_kb}KB")
-                    new_filename_parts.append(str(i))  # 保持原有结构
+                        new_filename_parts.append(f"{file_size_kb}KB")
+                        new_filename_parts.append(str(i))
 
-                    new_filename = "-".join(new_filename_parts) + ".png" # 使用单个 - 连接
-                    new_filepath = os.path.join(root, new_filename)
+                        new_filename = "-".join(new_filename_parts) + ".png"
+                        new_filepath = os.path.join(root, new_filename)
 
-                    old_filename = os.path.basename(png_file_path)
-                    new_filename_base = os.path.basename(new_filepath)
+                        old_filename = os.path.basename(png_file_path)
+                        new_filename_base = os.path.basename(new_filepath)
 
-                    os.rename(png_file_path, new_filepath)
+                        # 重命名警告（只在处理 SillyTavern 目录时显示）
+                        if "SillyTavern" in root and "characters" in root.lower():
+                            print(f"警告：正在重命名 SillyTavern 角色卡文件：{old_filename} -> {new_filename_base}")
+                            print("这可能会影响到基于角色卡名称命名的 SillyTavern 聊天记录文件夹，导致聊天记录文件夹与角色卡失去关联。")
 
-                    relative_root = os.path.relpath(root, directory)
-                    renamed_in_path[old_filename] = new_filename_base
+                        os.rename(png_file_path, new_filepath)
 
-                    if name_value:
-                        duplicate_charas[name_value][root].append(new_filename_base)
+                        relative_root = os.path.relpath(root, directory)
+                        renamed_in_path[old_filename] = new_filename_base
 
-                    i += 1
-                    count += 1
+                        if name_value:
+                            duplicate_charas[name_value][root].append(new_filename_base)
 
-                except json.JSONDecodeError:
-                    print(f"文件 {os.path.relpath(png_file_path, directory)} 的元数据不是有效的 JSON 格式。")
+                        i += 1
+                        count += 1
+
+                    except json.JSONDecodeError:
+                        print(f"文件 {os.path.relpath(png_file_path, directory)} 的元数据不是有效的 JSON 格式。")
         if count > 0:
             print(f"{os.path.relpath(root, directory)}: ({count})")
             for old_filename, new_filename_base in renamed_in_path.items():
@@ -131,41 +146,63 @@ def rename_png_files_recursive(directory, reset_counter=False):
 
     return i  # 返回计数器的值
 
+
+
 def main():
-    print("请选择操作路径:")
-    print("1. 下载 (Downloads)")
-    print("2. 文档 (Documents) - SillyTavern Characters")
+    """主函数，处理用户交互和目录选择。"""
+    root = tk.Tk()
+    root.withdraw()  # 隐藏主窗口
 
     while True:
-        choice = input("请选择 (1 或 2): ")
-        if choice in ('1', '2'):
-            break
+        print("请选择操作：")
+        print("1. 处理脚本所在文件夹")
+        print("2. 选择文件夹")
+        print("0. 退出")
+
+        choice = input("请选择 (1, 2, 或 0): ").strip()
+
+        if choice == '1':
+            directory = os.path.dirname(os.path.abspath(__file__))
+            print(f"处理脚本所在文件夹: {directory}")
+            # 增加 SillyTavern 路径的特殊处理 (在选择目录后)
+            if "SillyTavern" in directory.lower() and "characters" in directory.lower():
+                print("\n警告: 正在处理 SillyTavern 角色卡文件夹。")
+                print("重命名角色卡文件可能会影响到基于角色卡名称命名的 SillyTavern 聊天记录文件夹。")
+                confirmation = input("是否继续重命名 SillyTavern 角色卡? (yes/no): ").lower()
+                if confirmation != 'yes':
+                    print("操作已取消。")
+                    continue  # 回到循环开始
+                rename_png_files_recursive(directory, reset_counter=True)  # SillyTavern 目录重置计数器
+            else:
+                rename_png_files_recursive(directory)
+
+
+        elif choice == '2':
+            directory = filedialog.askdirectory(title="选择包含 PNG 文件的文件夹")
+            if directory:  # 确保用户选择了文件夹
+                print(f"处理文件夹: {directory}")
+                # 增加 SillyTavern 路径的特殊处理 (在选择目录后)
+                if "SillyTavern" in directory.lower() and "characters" in directory.lower():
+                    print("\n警告: 正在处理 SillyTavern 角色卡文件夹。")
+                    print("重命名角色卡文件可能会影响到基于角色卡名称命名的 SillyTavern 聊天记录文件夹。")
+                    confirmation = input("是否继续重命名 SillyTavern 角色卡? (yes/no): ").lower()
+                    if confirmation != 'yes':
+                        print("操作已取消。")
+                        continue #回到循环开始
+                    rename_png_files_recursive(directory, reset_counter=True)  # SillyTavern 目录重置计数器
+
+                else: # 非SillyTavern目录
+                    rename_png_files_recursive(directory)
+            else:
+                print("未选择文件夹。")  # 用户取消了选择
+
+        elif choice == '0':
+            print("退出程序。")
+            break  # 退出循环
+
         else:
-            print("无效的选择，请重新输入。")
+            print("无效的选项。")
 
-    if choice == '1':
-        download_path = os.path.join(os.path.expanduser("~"), "Downloads")
-        print(f"\n处理路径: {download_path}")
-        rename_png_files_recursive(download_path)
-
-    elif choice == '2':
-        documents_path = os.path.join(os.path.expanduser("~"), "Documents")
-        print("\n警告: 重命名角色卡文件可能会影响到基于角色卡名称命名的 SillyTavern 聊天记录文件夹。\n继续操作可能会导致聊天记录文件夹与角色卡失去关联。") # 提前显示警告
-        confirmation = input("是否继续重命名 SillyTavern 角色卡? (yes/no): ").lower() # 提前请求确认
-        if confirmation == 'yes': # 确认 yes 后才查找路径
-            print(f"\n在文档 (Documents) 目录下查找 SillyTavern 文件夹...")
-            for root, dirs, _ in os.walk(documents_path):
-                for dir_name in dirs:
-                    if dir_name == "SillyTavern":
-                        sillytavern_dir_path = os.path.join(root, dir_name)
-                        characters_path = os.path.join(sillytavern_dir_path, "data", "default-user", "characters")
-                        if os.path.isdir(characters_path):
-                            print(f"\n处理 SillyTavern Characters 路径: {characters_path}")
-                            rename_png_files_recursive(characters_path, reset_counter=True)
-                        else:
-                            print(f"警告: 路径 {characters_path} 不存在。跳过。")
-        else: # 用户选择 no
-            print("操作已取消。")
 
 if __name__ == "__main__":
     main()
