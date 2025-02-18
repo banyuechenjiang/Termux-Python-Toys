@@ -17,32 +17,32 @@ def is_valid_quickreply_json(file_path):
 
             # 更严格的结构检查
             if not isinstance(data, dict):
-                print(f"# 错误：JSON 根不是字典: {file_path}")
+                print(f"错误：JSON 根不是字典: {file_path}")
                 return False
             if not all(key in data for key in ["version", "name", "qrList"]):
-                print(f"# 错误：缺少必要的键 (version, name, qrList): {file_path}")
+                print(f"错误：缺少必要的键 (version, name, qrList): {file_path}")
                 return False
             if not isinstance(data["version"], int):
-                print(f"# 错误：'version' 不是整数: {file_path}")
+                print(f"错误：'version' 不是整数: {file_path}")
                 return False
             if not isinstance(data["name"], str):
-                 print(f"# 错误：'name' 不是字符串: {file_path}")
+                 print(f"错误：'name' 不是字符串: {file_path}")
                  return False
             if not isinstance(data["qrList"], list):
-                print(f"# 错误：'qrList' 不是列表: {file_path}")
+                print(f"错误：'qrList' 不是列表: {file_path}")
                 return False
             for item in data["qrList"]:
                 if not isinstance(item, dict):
-                    print(f"# 错误：'qrList' 中的条目不是字典: {file_path}")
+                    print(f"错误：'qrList' 中的条目不是字典: {file_path}")
                     return False
                 if not all(key in item for key in ["id", "label", "message", "isHidden"]):
-                    print(f"# 错误：'qrList' 条目缺少必要的键 (id, label, message, isHidden): {file_path}")
+                    print(f"错误：'qrList' 条目缺少必要的键 (id, label, message, isHidden): {file_path}")
                     return False
                 # 可以根据需要添加更多类型检查
 
             return True
     except (FileNotFoundError, json.JSONDecodeError) as e:
-        print(f"# 错误：读取或解析 JSON 失败: {file_path} - {e}")
+        print(f"错误：读取或解析 JSON 失败: {file_path} - {e}")
         return False
 
 def extract_from_json(file_path):
@@ -52,21 +52,21 @@ def extract_from_json(file_path):
     # Args:
         file_path (str): QuickReply JSON 文件的路径。
     """
-    print(f"# 正在处理: {file_path}")  # 调试信息
+    print(f"正在处理: {file_path}")  # 调试信息
 
     try:
         with open(file_path, 'r', encoding='utf-8') as f:
             data = json.load(f)
     except FileNotFoundError:
-        print(f"# 错误：文件未找到: {file_path}")
+        print(f"错误：文件未找到: {file_path}")
         return
     except json.JSONDecodeError:
-        print(f"# 错误：JSON 格式错误: {file_path}")
+        print(f"错误：JSON 格式错误: {file_path}")
         return
 
     name = data.get('name')
     if not name:
-        print("# 警告：未找到 'name' 字段，无法创建文件夹。")
+        print("警告：未找到 'name' 字段，无法创建文件夹。")
         return
 
     script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -76,7 +76,7 @@ def extract_from_json(file_path):
         try:
             os.makedirs(folder_path)
         except OSError as e:
-            print(f"# 错误：创建文件夹失败 '{folder_path}': {e}")
+            print(f"错误：创建文件夹失败 '{folder_path}': {e}")
             return
 
     qr_list = data.get('qrList', [])
@@ -86,7 +86,7 @@ def extract_from_json(file_path):
         is_hidden = qr_item.get('isHidden', False)
 
         if not label:
-            print("# 警告：跳过没有 'label' 的 qr_item。")
+            print("警告：跳过没有 'label' 的 qr_item。")
             continue
 
         safe_label = re.sub(r'[\\/*?:"<>|]', '', label)
@@ -100,7 +100,7 @@ def extract_from_json(file_path):
                 f.write(message.replace('\\n', '\n'))
             print(f"  # 成功创建文件: {file_path}")
         except OSError as e:
-            print(f"# 错误：创建文件失败 '{file_path}': {e}")
+            print(f"错误：创建文件失败 '{file_path}': {e}")
 
 def select_json_file_and_extract():
     """
@@ -110,7 +110,7 @@ def select_json_file_and_extract():
     valid_json_files = [f for f in json_files if is_valid_quickreply_json(f)]
 
     if not valid_json_files:
-        print("# 未找到 QuickReply 类型的 JSON 文件。")
+        print("未找到 QuickReply 类型的 JSON 文件。")
         return
 
     for i, file in enumerate(valid_json_files):
@@ -118,7 +118,7 @@ def select_json_file_and_extract():
 
     while True:
         try:
-            choice = int(input("# 请选择要处理的 QuickReply JSON 文件的编号 (输入0退出): "))
+            choice = int(input(" 请选择要处理的 QuickReply JSON 文件的编号 (输入0退出): "))
             if choice == 0:
                 return
             if 1 <= choice <= len(valid_json_files):
@@ -126,9 +126,9 @@ def select_json_file_and_extract():
                 extract_from_json(selected_file)
                 break
             else:
-                print("# 无效的编号，请重新输入。")
+                print("无效的编号，请重新输入。")
         except ValueError:
-            print("# 无效的输入，请输入数字。")
+            print("无效的输入，请输入数字。")
 
 def merge_to_json(directory: str, output_json_path: str):
     """
@@ -138,11 +138,11 @@ def merge_to_json(directory: str, output_json_path: str):
        directory (str): 包含 txt 文件的目录。
        output_json_path (str): 输出的 QuickReply JSON 文件的路径。
     """
-    print(f"# 正在合并目录: {directory}")
+    print(f"正在合并目录: {directory}")
 
     txt_files = [f for f in os.listdir(directory) if f.endswith(".txt")]
     if not txt_files:
-        print(f"# 警告：目录 '{directory}' 中未找到任何 TXT 文件。")
+        print(f"警告：目录 '{directory}' 中未找到任何 TXT 文件。")
         return
 
     qr_list = []
@@ -175,9 +175,9 @@ def merge_to_json(directory: str, output_json_path: str):
                     "automationId": ""
                 })
                 id_counter += 1
-            print(f"# 已读取并添加: {txt_file}")
+            print(f"已读取并添加: {txt_file}")
         except OSError as e:
-            print(f"# 错误：读取文件 '{txt_file}' 失败：{e}")
+            print(f"错误：读取文件 '{txt_file}' 失败：{e}")
             return
 
     output_data = {
@@ -195,9 +195,9 @@ def merge_to_json(directory: str, output_json_path: str):
     try:
         with open(output_json_path, "w", encoding="utf-8") as f:
             json.dump(output_data, f, ensure_ascii=False)  # 移除 indent=2
-        print(f"# 成功创建新的 QuickReply JSON 文件: {output_json_path}")
+        print(f"成功创建新的 QuickReply JSON 文件: {output_json_path}")
     except OSError as e:
-        print(f"# 错误：创建 JSON 文件 '{output_json_path}' 失败: {e}")
+        print(f"错误：创建 JSON 文件 '{output_json_path}' 失败: {e}")
 
 def get_quickreply_json_files():
     """# 获取当前目录下所有符合 QuickReply 结构的 JSON 文件"""
@@ -213,16 +213,16 @@ def push_to_json(qr_json_path: str, directory: str):
         qr_json_path (str): 要更新的 QuickReply JSON 文件的路径。
         directory (str): 包含 TXT 文件的目录。
     """
-    print(f"# 正在推送更新到: {qr_json_path}，使用目录: {directory}")
+    print(f"正在推送更新到: {qr_json_path}，使用目录: {directory}")
 
     try:
         with open(qr_json_path, 'r', encoding='utf-8') as f:
             qr_data = json.load(f)
     except FileNotFoundError:
-        print(f"# 错误：QuickReply JSON 文件未找到: {qr_json_path}")
+        print(f"错误：QuickReply JSON 文件未找到: {qr_json_path}")
         return
     except json.JSONDecodeError:
-        print(f"# 错误：QuickReply JSON 文件 JSON 格式错误: {qr_json_path}")
+        print(f"错误：QuickReply JSON 文件 JSON 格式错误: {qr_json_path}")
         return
 
     file_contents = {}
@@ -238,7 +238,7 @@ def push_to_json(qr_json_path: str, directory: str):
                     file_contents[label] = f.read()
 
             except OSError as e:
-                print(f"# 错误：读取文件 '{filepath}' 失败: {e}")
+                print(f"错误：读取文件 '{filepath}' 失败: {e}")
                 return
 
     updated_count = 0
@@ -247,14 +247,14 @@ def push_to_json(qr_json_path: str, directory: str):
         if label in file_contents:
             qr_item["message"] = file_contents[label]  # 更新 message，保留原始换行符
             updated_count += 1
-            print(f"# 更新了 '{label}' 的 message")
+            print(f"更新了 '{label}' 的 message")
 
     try:
         with open(qr_json_path, "w", encoding="utf-8") as f:
             json.dump(qr_data, f, ensure_ascii=False)  # 移除 indent=2
-        print(f"# 成功更新 QuickReply JSON 文件: {qr_json_path}，更新了 {updated_count} 个条目")
+        print(f"成功更新 QuickReply JSON 文件: {qr_json_path}，更新了 {updated_count} 个条目")
     except OSError as e:
-        print(f"# 错误：写入 QuickReply JSON 文件 '{qr_json_path}' 失败: {e}")
+        print(f"错误：写入 QuickReply JSON 文件 '{qr_json_path}' 失败: {e}")
 
 def get_valid_folders():
     """
@@ -277,10 +277,10 @@ def main():
     """# 主函数，提供交互式菜单"""
     while True:
         print("\n# 请选择操作:")
-        print("# 1. 提取 (从 QuickReply JSON 提取到文件)")
-        print("# 2. 合并 (从文件合并到新的 QuickReply JSON)")
-        print("# 3. 推送 (从文件更新 QuickReply JSON)")
-        print("# 0. 退出")
+        print("1. 提取 (从 QuickReply JSON 提取到文件)")
+        print("2. 合并 (从文件合并到新的 QuickReply JSON)")
+        print("3. 推送 (从文件更新 QuickReply JSON)")
+        print("0. 退出")
 
         choice = input("# 请输入选项 (0-3): ")
 
@@ -289,25 +289,25 @@ def main():
         elif choice == "2":
             valid_folders = get_valid_folders()
             if not valid_folders:
-                print("# 当前目录下没有包含 TXT 文件的文件夹。")
+                print("当前目录下没有包含 TXT 文件的文件夹。")
                 continue
 
-            print("# 请选择一个文件夹进行合并：")
+            print("请选择一个文件夹进行合并：")
             for i, folder in enumerate(valid_folders):
                 print(f"{i + 1}. {folder}")
 
             while True:
                 try:
-                    choice = int(input("# 请输入文件夹编号 (输入0返回): "))
+                    choice = int(input(" 请输入文件夹编号 (输入0返回): "))
                     if choice == 0:
                         break
                     if 1 <= choice <= len(valid_folders):
                         directory = valid_folders[choice - 1]
                         break
                     else:
-                        print("# 无效的编号，请重新输入。")
+                        print("无效的编号，请重新输入。")
                 except ValueError:
-                    print("# 无效的输入，请输入数字。")
+                    print("无效的输入，请输入数字。")
 
             if choice == 0:
                 continue
@@ -320,7 +320,7 @@ def main():
         elif choice == "3":
             qr_json_files = get_quickreply_json_files()
             if not qr_json_files:
-                print("# 未找到 QuickReply JSON 文件，请先使用提取操作。")
+                print("未找到 QuickReply JSON 文件，请先使用提取操作。")
                 continue
 
             for i, file in enumerate(qr_json_files):
@@ -328,39 +328,39 @@ def main():
 
             while True:
                 try:
-                    choice = int(input("# 请选择要更新的 QuickReply JSON 文件的编号 (输入0退出): "))
+                    choice = int(input(" 请选择要更新的 QuickReply JSON 文件的编号 (输入0退出): "))
                     if choice == 0:
                         break
                     if 1 <= choice <= len(qr_json_files):
                         selected_qr_json = qr_json_files[choice - 1]
                         break
                     else:
-                        print("# 无效的编号，请重新输入。")
+                        print("无效的编号，请重新输入。")
                 except ValueError:
-                    print("# 无效的输入，请输入数字。")
+                    print("无效的输入，请输入数字。")
             if choice == 0:
                 continue
 
             valid_folders = get_valid_folders()
             if not valid_folders:
-                print("# 当前目录下没有包含TXT文件的文件夹")
+                print("当前目录下没有包含TXT文件的文件夹")
                 continue
 
-            print("# 请选择一个文件夹来更新 QuickReply JSON：")
+            print("请选择一个文件夹来更新 QuickReply JSON：")
             for i, folder in enumerate(valid_folders):
                 print(f"{i + 1}. {folder}")
             while True:
                 try:
-                    choice_folder = int(input("# 请输入文件夹编号 (输入0返回): "))
+                    choice_folder = int(input(" 请输入文件夹编号 (输入0返回): "))
                     if choice_folder == 0:
                         break
                     if 1 <= choice_folder <= len(valid_folders):
                         directory = valid_folders[choice_folder - 1]
                         break
                     else:
-                        print("# 无效的编号，请重新输入")
+                        print("无效的编号，请重新输入")
                 except ValueError:
-                    print("# 无效的输入，请输入数字。")
+                    print("无效的输入，请输入数字。")
 
             if choice_folder == 0:
                 continue
@@ -368,10 +368,10 @@ def main():
             push_to_json(selected_qr_json, directory)
 
         elif choice == "0":
-            print("# 退出程序。")
+            print("退出程序。")
             break
         else:
-            print("# 无效的选项，请重新输入。")
+            print("无效的选项，请重新输入。")
 
 if __name__ == "__main__":
     main()
