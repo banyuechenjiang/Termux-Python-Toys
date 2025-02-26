@@ -176,14 +176,16 @@ class WorldbookManager:
       isStart: bool = False,
       startOrder: int = 0,
   ) -> dict:
-    folderName = text.split("/")[-1].replace("\\", "&")
+    # 使用 & 符号连接多层文件夹
+    folderName = text.replace("\\", "&").split("/")[-1]
     content = ""
     position = 0
     order = 0
     random_directive_start = "{{random: "
     random_directive_end = "}}"
-    list_start_tag = f"<{folderName.replace('-', '_')}-列表>\n "
-    list_end_tag = f"\n</{folderName.replace('-', '_')}-列表>"
+    # 确保列表标签与 key 一致
+    list_start_tag = f"<{folderName}-列表>\n "
+    list_end_tag = f"\n</{folderName}-列表>"
 
     if isStart:
       if fileList:
@@ -194,7 +196,7 @@ class WorldbookManager:
             + fileListStr
             + random_directive_end
             + list_end_tag
-        ).replace("\\", "&")
+        )
 
       position = 0
       order = startOrder
@@ -202,15 +204,11 @@ class WorldbookManager:
       position = (1,)
       order = startOrder + 2
 
-    comment = (
-        f"--始 {text.replace('\\', '&')}--"
-        if isStart
-        else f"--{text.replace('\\', '&')} 终--"
-    )
+    comment = f"--始 {text.replace('\\', '&')}--" if isStart else f"--{text.replace('\\', '&')} 终--"
 
     return {
         "uid": uid,
-        "key": [folderName],
+        "key": [folderName],  # key 也使用 & 符号连接
         "keysecondary": [],
         "comment": comment,
         "content": content,
@@ -253,9 +251,10 @@ class WorldbookManager:
       displayIndex: int,
   ) -> dict:
     title = os.path.splitext(fileName)[0]
+    # 使用 & 符号连接多层文件夹
     if relative_folder_path:
-      folderParts = relative_folder_path.replace("\\", "/").split("/")
-      key_value = [folderParts[-1].replace("/", "&")]
+      folderParts = relative_folder_path.replace("\\", "&").split("/")
+      key_value = [folderParts[-1]]
     else:
       key_value = [root_folder_name]
 
@@ -289,19 +288,16 @@ class WorldbookManager:
     now = datetime.now()
     formatted_date = now.strftime("%Y/%m/%d %H:%M:%S")
 
-    # 根据 identifier 是否为空，决定是否添加 "作者：" 字段
     author_line = f"作者：{identifier}" if identifier else ""
-
-    # 如果用户提供了标签，则添加到 metadata_content 中
     tags_line = f"标签：{user_tags}" if user_tags else "标签："
 
-    metadata_content = f"""{{//
+    metadata_content = r"""{{//
 ---
-生成时间: {formatted_date}
+生成时间: %s
 ---
 世界书描述：
-{tags_line}
-{author_line}
+%s
+%s
 ---
 配置信息：
          - 默认不区分大小写
@@ -320,7 +316,7 @@ class WorldbookManager:
 (Creative Commons Attribution-ShareAlike 4.0 International License)
 查看许可证副本请访问：https://creativecommons.org/licenses/by-sa/4.0/
 ---
-}}"""
+}}""" % (formatted_date, tags_line, author_line)
 
     entries[uid_counter] = {
         "uid": uid_counter,
@@ -363,13 +359,10 @@ class WorldbookManager:
     total_files_processed = 0
 
     for folder_path, dirnames, filenames in os.walk(self.root_dir):
-      # 对子目录和文件进行排序，优先处理子目录
       dirnames.sort()
       filenames.sort()
 
       relative_folder_path = os.path.relpath(folder_path, self.root_dir)
-      folderName = os.path.basename(folder_path)
-
       if relative_folder_path != ".":  # 检查是否为根目录的直接子目录/文件
         current_folder_files = sorted([
             os.path.splitext(f)[0]
@@ -391,7 +384,7 @@ class WorldbookManager:
         uid_counter += 1
         display_index += 1
         folder_order += 10
-        print(f"\n  处理文件夹: {relative_folder_path}") # 关键：打印处理的文件夹
+        print(f"\n  处理文件夹: {relative_folder_path}")  # 关键：打印处理的文件夹
 
       for file_name in filenames:
         if file_name.endswith((".txt", ".md", ".yaml", ".yml")):
@@ -425,7 +418,6 @@ class WorldbookManager:
             else:
               depth = 8
 
-            # 如果是根目录下的文件, order 设置为 99, 否则按照文件夹的 order
             order = 99 if relative_folder_path == "." else folder_order + 1
             entries[uid_counter] = self._create_entry(info, order, depth)
             uid_counter += 1
@@ -449,7 +441,8 @@ class WorldbookManager:
     output = json.dumps(worldbook, indent=2, ensure_ascii=False)
 
     try:
-      output_filepath = f"「{identifier}」-世界书 - {uploadFolderName}.json"
+      identifier_for_filename = identifier if identifier else "Ixia"
+      output_filepath = f"「{identifier_for_filename}」-世界书 - {uploadFolderName}.json"
       with open(output_filepath, "w", encoding="utf-8") as outfile:
         outfile.write(output)
       print(f"\n{'-' * 30}")
@@ -487,7 +480,6 @@ class WorldbookManager:
         0]
     output_dir_base = json_filename_without_ext
 
-    # 从文件名中提取识别名。
     prefix_to_remove = "」-世界书 - "
     start_index = output_dir_base.find("「")
     end_index = output_dir_base.find(prefix_to_remove)
@@ -498,7 +490,7 @@ class WorldbookManager:
       output_dir_base = output_dir_base[end_index +
                                         len(prefix_to_remove):]  # 提取剩余部分
     else:
-      identifier = "Ixia"  # 如果无法提取，则使用默认名称
+      identifier = "Ixia"
 
     output_root_dir = f"{output_dir_base}-拆分"
     print(f"  文件将拆分到目录: {output_root_dir}")
@@ -532,12 +524,14 @@ class WorldbookManager:
 
   def _extract_folder_name(self, entry_data: dict) -> Optional[str]:
     comment = entry_data.get("comment", "")
+    # 根据注释提取文件夹名称，并处理 & 符号
     if comment.startswith("--始 ") and comment.endswith("--"):
       return comment[4:-2].replace("&", "\\")
     elif comment.startswith("--") and comment.endswith(" 终--"):
       return comment[2:-4].replace("&", "\\")
     else:
       key_list = entry_data.get("key")
+      # 如果 key 是列表，则返回第一个元素（已经包含 & 符号）
       if isinstance(key_list, list) and key_list:
         return key_list[0]
       else:
@@ -573,37 +567,20 @@ class WorldbookManager:
         end="",
     )
 
-    if self._is_metadata_entry(entry_data):
-      print(f' 跳过 "【说明】" 条目')
-      return
-
-    comment = entry_data.get("comment", "")
-    if comment.startswith("--") and comment.endswith(" 终--"):
+    if self._is_metadata_entry(entry_data) or self._is_divider_entry(entry_data):
+      if self._is_metadata_entry(entry_data):
+          print(f' 跳过 "【说明】" 条目')
       return
 
     folder_path = self._extract_folder_name(entry_data)
-
-    if comment.startswith("--始 ") and comment.endswith("--"):
-      folder_path = folder_path.replace("&", "\\")
-      full_folder_path = os.path.join(output_root_dir, folder_path)
-      os.makedirs(full_folder_path, exist_ok=True)
-      print(f"   创建文件夹: {full_folder_path}")
-      return
-
+    # 无条件创建完整路径（如果不存在）
+    if folder_path:
+        full_folder_path = os.path.join(output_root_dir, folder_path.replace("&", "\\"))
+        os.makedirs(full_folder_path, exist_ok=True)
+        # 仅在起始分隔符时打印创建文件夹的消息
+        if entry_data.get("comment", "").startswith("--始 "):
+            print(f"   创建文件夹: {full_folder_path}")
     else:
-      matched_folder = None
-
-      for root, dirs, _ in os.walk(output_root_dir):
-        for dir_name in dirs:
-          if folder_path == dir_name:
-            matched_folder = os.path.join(root, dir_name)
-            break
-        if matched_folder:
-          break
-
-      if matched_folder:
-        full_folder_path = matched_folder
-      else:
         full_folder_path = output_root_dir
 
     file_name = self._extract_file_name(entry_data, output_file_ext, entry_id)
@@ -611,12 +588,11 @@ class WorldbookManager:
 
     try:
       filepath = os.path.join(full_folder_path, file_name)
-      if output_file_ext in ("yaml", "yml"):
-        with open(filepath, "w", encoding="utf-8") as outfile:
-          yaml.dump(content, outfile, allow_unicode=True)
-      else:
-        with open(filepath, "w", encoding="utf-8") as outfile:
-          outfile.write(str(content))
+      with open(filepath, "w", encoding="utf-8") as outfile:
+          if output_file_ext in ("yaml", "yml"):
+              yaml.dump(content, outfile, allow_unicode=True)
+          else:
+              outfile.write(str(content))
       print(f"   文件 '{file_name}' 创建成功。")
     except Exception as e:
       print(f"   写入文件 '{filepath}' 失败: {e}")
@@ -628,7 +604,7 @@ class WorldbookManager:
     content = entry_data.get("content", "")
 
     if comment.startswith("--始 ") and comment.endswith("--"):
-      folder_name = comment[4:-2]
+      folder_name = comment[4:-2]  # 直接获取，无需替换
       file_list_str = content.strip()
       if file_list_str.startswith(f"<{folder_name}-列表>") and file_list_str.endswith(
           f"</{folder_name}-列表>"
@@ -643,7 +619,7 @@ class WorldbookManager:
                        for f in random_content.split(",") if f.strip()]
       return folder_name, file_list
     elif comment.startswith("--") and comment.endswith(" 终--"):
-      folder_name = comment[2:-4].strip()
+      folder_name = comment[2:-4].strip()  # 直接获取，无需替换
       return folder_name, None
     else:
       return None, None
