@@ -1,20 +1,22 @@
 @echo off
+::后续命令使用的是：UTF-8编码
+chcp 65001
 
 :: 启用 BypassCertificatePinningForMicrosoftStore 设置（允许绕过Microsoft Store的证书固定）
 echo 正在启用 BypassCertificatePinningForMicrosoftStore 设置...
 winget settings --enable BypassCertificatePinningForMicrosoftStore
 echo 设置已启用。
 
-:: 移除默认的 winget 源并添加中科大镜像源，并设置为信任
+:: 移除默认的 winget 源并添加中科大镜像源
 echo 正在移除默认的 winget 源...
 winget source remove winget
 echo 正在添加中科大镜像源...
-winget source add winget https://mirrors.ustc.edu.cn/winget-source --trust-level trusted
+winget source add winget https://mirrors.ustc.edu.cn/winget-source
 echo 正在更新 winget 源...
 winget source update
 echo 源配置已完成。
 
-:: 安装常用软件
+:: 从winget 源 安装常用软件
 echo 正在安装 7-Zip-zstd (支持Zstandard压缩的7-Zip版本)...
 winget install mcmilk.7zip-zstd -s winget
 
