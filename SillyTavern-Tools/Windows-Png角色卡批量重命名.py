@@ -150,9 +150,6 @@ def rename_png_files_recursive(directory, reset_counter=False):
 
 def main():
     """主函数，处理用户交互和目录选择。"""
-    root = tk.Tk()
-    root.withdraw()  # 隐藏主窗口
-
     while True:
         print("请选择操作：")
         print("1. 处理脚本所在文件夹")
