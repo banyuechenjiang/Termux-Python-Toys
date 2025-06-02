@@ -10,20 +10,29 @@ import math
 import json
 from datetime import datetime, timedelta
 
+
 #pip install requests_html
 #pip install lxml_html_clean
 #Termux安装可能需要参考https://www.zhihu.com/question/493575333
 
+
+
 CONFIG_YAML_CONTENT = """
 User_Cookie:
   - "请填写自己的"
-
-  
 Appoint_Up:
   - id: "87031209"
+    name: "r–note&槐南茶馆"
   - id: "3493265644980448"
     name: "碧蓝档案"
   - id: "476491780"
+    name: "SechiAnimation"
+Manga_Task:
+  Enabled: true
+  Read_Target:
+    comic_id: "27355"
+    ep_id: "381662"
+    title: "示例漫画"
 """
 
 MIN_COIN_FOR_PUTTING = 200
@@ -105,7 +114,7 @@ class ConfigManager:
     def _process_user_config(self, raw_config_data: dict) -> dict:
         user_conf = {}
         parsed_cookie = self._handle_single_cookie_str(raw_config_data["User_Cookie"][0])
-        if not parsed_cookie: print("Cookie解析失败或为空。"); sys.exit(1)
+        if not parsed_cookie: print("Cookie解析失败或为空。请自行编辑添加"); sys.exit(1)
         user_conf['Cookie'] = parsed_cookie
         raw_appoint_up_config = raw_config_data.get('Appoint_Up')
         processed_appoint_up = []
@@ -119,6 +128,24 @@ class ConfigManager:
                 elif isinstance(item, (str, int)) and str(item).strip().isdigit():
                     processed_appoint_up.append({'id': str(item).strip()})
         user_conf['Up'] = processed_appoint_up
+
+        raw_manga_config = raw_config_data.get('Manga_Task', {})
+        processed_manga_config = {
+            'Enabled': raw_manga_config.get('Enabled', False) == True,
+            'Read_Target': {}
+        }
+        if isinstance(raw_manga_config.get('Read_Target'), dict):
+            rt_conf = raw_manga_config['Read_Target']
+            comic_id = str(rt_conf.get('comic_id', '')).strip()
+            ep_id = str(rt_conf.get('ep_id', '')).strip()
+            title = str(rt_conf.get('title', '')).strip()
+            if comic_id.isdigit() and ep_id.isdigit():
+                processed_manga_config['Read_Target'] = {
+                    'comic_id': comic_id,
+                    'ep_id': ep_id,
+                    'title': title if title else f"漫画ID {comic_id}"
+                }
+        user_conf['Manga_Task'] = processed_manga_config
         return user_conf
 
     def get_config(self): return self.user_config
@@ -152,13 +179,18 @@ class BiliRequest:
         except requests_html.requests.exceptions.RequestException as e:
             print(f"GET请求失败: {full_url}, 错误: {e}"); return None
 
-    def post(self, url: str, cookies: dict, post_data: dict, **kwargs) -> requests_html.HTMLResponse | None:
-        headers = {**self.default_headers, **kwargs.pop('headers', {})}
+    def post(self, url: str, cookies: dict, params: dict = None, post_data: dict = None, **kwargs) -> requests_html.HTMLResponse | None:
+        request_headers = {**self.default_headers, **kwargs.pop('headers', {})}
+        final_url = url
+        if params:
+            query_string = urlencode(params)
+            if '?' in final_url: final_url = f"{final_url}&{query_string}"
+            else: final_url = f"{final_url}?{query_string}"
         try:
-            res = HTML_SESSION.post(url=url, headers=headers, cookies=cookies, data=post_data, timeout=10, **kwargs)
+            res = HTML_SESSION.post(url=final_url, headers=request_headers, cookies=cookies, data=post_data, timeout=15, **kwargs)
             res.raise_for_status(); return res
         except requests_html.requests.exceptions.RequestException as e:
-            print(f"POST请求失败: {url}, 错误: {e}"); return None
+            print(f"POST请求失败: {final_url}, 错误: {e}"); return None
 
 class UserHandler:
     def __init__(self, request_handler: BiliRequest):
@@ -331,7 +363,7 @@ class DailyTasks:
         csrf = cookie.get('bili_jct', '')
         if not csrf: print("分享失败: Cookie缺bili_jct"); return False
         print(f"尝试分享视频 '{title}' (AID: {aid})")
-        resp = self.request_handler.post(self.urls['Share_Video'], cookie, {"aid": aid, "csrf": csrf})
+        resp = self.request_handler.post(self.urls['Share_Video'], cookie, post_data={"aid": aid, "csrf": csrf})
         if resp and resp.json().get('code') == 0: print(f"分享视频 '{title}' 完成 🥳"); time.sleep(random.randint(10,25)); return True
         elif resp and resp.json().get('code') == 71000: print(f"视频 '{title}' 今日已分享过 😫"); return True
         else: print(f"分享失败: '{title}' - {resp.json().get('message') if resp else '请求失败'}"); return False
@@ -347,7 +379,6 @@ class DailyTasks:
         current_desc = chosen_video_obj.get('desc','')
         current_pic_url = chosen_video_obj.get('pic_url', '')
 
-
         if is_play_mode or actual_duration_sec <= 0:
             fetched_details = self._get_video_details_from_view_api(aid, cookie)
             if fetched_details:
@@ -358,9 +389,7 @@ class DailyTasks:
                 chosen_video_obj['desc'] = current_desc
                 chosen_video_obj['pic_url'] = current_pic_url
 
-
-        if actual_duration_sec > 0:
-            ideal_report_duration = int(actual_duration_sec * random.uniform(0.6, 1.0))
+        if actual_duration_sec > 0: ideal_report_duration = int(actual_duration_sec * random.uniform(0.6, 1.0))
         else:
             ideal_report_duration = random.randint(15, 60)
             print(f"视频 '{current_title}' (AID:{aid}) 无法获取精确时长或初始时长为0，将使用随机时长。")
@@ -383,7 +412,7 @@ class DailyTasks:
         time.sleep(local_wait_time)
         data = {"aid": aid, "played_time": final_report_time, "csrf": cookie.get('bili_jct', '')}
 
-        resp = self.request_handler.post(self.urls['Watch_Video'], cookie, data)
+        resp = self.request_handler.post(self.urls['Watch_Video'], cookie, post_data=data)
         if resp and resp.json().get('code') == 0:
             print(f"上报成功: '{current_title}' 🥳")
             if not is_play_mode: time.sleep(random.randint(10,25))
@@ -407,10 +436,8 @@ class DailyTasks:
 
         exp_needed_from_coins_to_reach_50_cap = 50 - current_coins_exp_from_api
         exp_room_before_65_total_cap = 65 - total_exp_today_from_api
-
         actual_exp_target_from_coins = min(exp_needed_from_coins_to_reach_50_cap, exp_room_before_65_total_cap)
         ops_to_attempt = min(math.ceil(actual_exp_target_from_coins / 10), 5)
-
 
         if ops_to_attempt <= 0: print("计算后无需投币或已达经验上限。"); return True
         print(f"目标投币次数: {ops_to_attempt} (当前投币经验: {current_coins_exp_from_api}/50, 当前总任务经验: {total_exp_today_from_api}/65)")
@@ -426,7 +453,7 @@ class DailyTasks:
             aid, title = video_obj['aid'], video_obj['title']
             data = {'aid': aid, 'multiply': 1, 'select_like': 1, 'cross_domain': 'true', 'csrf': csrf}
             print(f"尝试向 '{title}' (av{aid}) 投1币并点赞...")
-            resp = self.request_handler.post(self.urls['Put_Coin'], cookie, data)
+            resp = self.request_handler.post(self.urls['Put_Coin'], cookie, post_data=data)
             if resp and resp.json().get('code') == 0:
                 print(f"投币成功: '{title}' 💿")
                 coins_thrown_this_run += 1; current_user_coins -=1
@@ -437,6 +464,76 @@ class DailyTasks:
         if coins_thrown_this_run > 0: print(f"本轮共投出 {coins_thrown_this_run} 枚硬币。")
         return True
 
+class MangaTaskHandler:
+    def __init__(self, request_handler: BiliRequest, manga_config: dict):
+        self.request_handler = request_handler
+        self.manga_config = manga_config
+        self.urls = {
+            "ClockIn": "https://manga.bilibili.com/twirp/activity.v1.Activity/ClockIn",
+            "AddHistory": "https://manga.bilibili.com/twirp/bookshelf.v1.Bookshelf/AddHistory"
+        }
+        self._manga_headers = {
+            "Origin": "https://manga.bilibili.com",
+            "Referer": "https://manga.bilibili.com/",
+            "Accept": "application/json, text/plain, */*",
+        }
+        self.clock_in_completed_today = False
+
+    def _attempt_clock_in_and_update_status(self, cookie: dict) -> bool:
+        params = {'platform': 'android'}
+        response = self.request_handler.post(self.urls['ClockIn'], cookie, params=params, post_data=None, headers=self._manga_headers)
+        if response:
+            try:
+                res_json = response.json()
+                code = res_json.get('code')
+                msg = res_json.get('msg', '')
+
+                if code == 0:
+                    if "already" in msg.lower() or "已签到" in msg:
+                        print(f"漫画今日已签到过 (API信息: code=0, msg='{msg}') 😊")
+                    else:
+                        print(f"漫画签到成功 🥳")
+                    self.clock_in_completed_today = True; return True
+                elif code == 1 and ("不能重复签到" in msg or "already" in msg.lower() or "已签到" in msg):
+                    print(f"漫画今日已签到过 (API信息: code=1, msg='{msg}') 😊")
+                    self.clock_in_completed_today = True; return True
+                elif code != 0 and ("already" in msg.lower() or "已签到" in msg):
+                    print(f"漫画今日已签到过 (API信息: code={code}, msg='{msg}') 😊")
+                    self.clock_in_completed_today = True; return True
+                else:
+                    print(f"漫画签到失败: code={code}, msg='{msg}'")
+                    self.clock_in_completed_today = False; return False
+            except Exception as e: print(f"解析漫画签到响应错误: {e}"); self.clock_in_completed_today = False; return False
+        else: print("漫画签到请求失败。"); self.clock_in_completed_today = False; return False
+
+    def perform_clock_in(self, cookie: dict) -> bool:
+        print("\n#尝试进行漫画签到#")
+        if not self.manga_config.get("Enabled", False):
+            print("漫画任务未启用，跳过签到。"); return True
+        return self._attempt_clock_in_and_update_status(cookie)
+
+    def perform_manga_read(self, cookie: dict) -> bool:
+        print("\n#正在进行漫画阅读任务#")
+        if not self.manga_config.get("Enabled", False):
+            print("漫画任务未启用，跳过阅读。"); return True
+
+        read_target = self.manga_config.get("Read_Target")
+        if not read_target or not read_target.get('comic_id') or not read_target.get('ep_id'):
+            print("漫画阅读目标未配置或配置不完整，跳过。"); return True
+
+        comic_id, ep_id, title = read_target['comic_id'], read_target['ep_id'], read_target['title']
+        params = {'platform': 'android', 'comic_id': comic_id, 'ep_id': ep_id}
+        print(f"尝试阅读漫画 '{title}' (comic_id: {comic_id}, ep_id: {ep_id})")
+        response = self.request_handler.post(self.urls['AddHistory'], cookie, params=params, post_data=None, headers=self._manga_headers)
+        if response and response.json().get('code') == 0:
+            print(f"漫画阅读 '{title}' 上报成功 👍"); time.sleep(random.randint(3,8)); return True
+        else:
+            err_msg = response.json().get('message', response.json().get('msg', '请求失败或API返回错误')) if response else '请求失败'
+            print(f"漫画阅读上报失败: '{title}' - {err_msg}"); return False
+
+    def get_current_clock_in_status(self) -> bool:
+        return self.clock_in_completed_today
+
 class ScriptRunner:
     def __init__(self):
         self.config_manager = ConfigManager(CONFIG_YAML_CONTENT)
@@ -444,6 +541,7 @@ class ScriptRunner:
         self.request_handler = BiliRequest()
         self.user_handler = UserHandler(self.request_handler)
         self.daily_tasks_handler = DailyTasks(self.request_handler)
+        self.manga_task_handler = MangaTaskHandler(self.request_handler, self.user_config.get('Manga_Task', {}))
         self.current_user_data = {}
 
     def _update_current_reward_status(self):
@@ -455,7 +553,6 @@ class ScriptRunner:
         self.current_user_data['coins_exp_today'] = reward_status.get('coins_exp', 0)
         self.current_user_data['total_task_exp_today'] = reward_status.get('total_exp_today', 0)
         return reward_status
-
 
     def _initial_user_info_and_reward_status_display(self):
         print("\n" + "#"*50 + "\n#" + " "*10 + "B站日常任务脚本" + " "*10 + "#\n" + "#"*50)
@@ -471,14 +568,21 @@ class ScriptRunner:
             print(f"每日分享完成: {'是' if reward_status.get('share') else '否'} (5 Exp)")
             print(f"今日投币获得经验: {reward_status.get('coins_exp',0)} / 50 Exp")
             print(f"今日已通过任务获得总经验: {reward_status.get('total_exp_today',0)} / 65 Exp")
-            if reward_status.get('message') != '获取成功' : print(f"获取奖励状态提示: {reward_status.get('message')}")
+
         print("-" * 50)
 
     def _get_user_action(self) -> str:
         while True:
             try:
-                action = input("\n选择操作: \n[1]执行日常任务 \n[2]测试视频播放 \n[0]退出 : ").strip()
-                if action in ['0', '1', '2']: return action
+                prompt = "\n选择操作: \n[1]执行日常任务 \n[2]测试视频播放"
+                if self.user_config.get('Manga_Task', {}).get('Enabled', False):
+                    prompt += " \n[3]执行漫画任务"
+                prompt += " \n[0]退出 : "
+                action = input(prompt).strip()
+                valid_actions = ['0', '1', '2']
+                if self.user_config.get('Manga_Task', {}).get('Enabled', False):
+                    valid_actions.append('3')
+                if action in valid_actions: return action
                 print("无效输入，请重试。")
             except EOFError: return '0'
 
@@ -499,24 +603,19 @@ class ScriptRunner:
         video_list = self.daily_tasks_handler.get_videos_for_tasks_with_details(self.user_config['Cookie'], self.user_config.get('Up'))
         if not video_list: print("\n未能获取到可用视频列表，无法执行依赖视频的任务。"); return
 
-
         if not current_reward_status.get('share', False) and total_task_exp < 65 :
             print("尝试执行分享任务...")
             if self.daily_tasks_handler.share_video(self.user_config['Cookie'], video_list):
                 current_reward_status = self._update_current_reward_status()
                 total_task_exp = current_reward_status.get('total_exp_today',0)
-        else:
-            print("分享任务已完成或总经验已达上限，跳过分享。")
-
+        else: print("分享任务已完成或总经验已达上限，跳过分享。")
 
         if not current_reward_status.get('watch', False) and total_task_exp < 65 :
             print("尝试执行观看任务 (同时完成登录任务)...")
             if self.daily_tasks_handler.watch_video(self.user_config['Cookie'], video_list, is_play_mode=False):
                 current_reward_status = self._update_current_reward_status()
                 total_task_exp = current_reward_status.get('total_exp_today',0)
-        else:
-            print("观看/登录任务已完成或总经验已达上限，跳过观看。")
-
+        else: print("观看/登录任务已完成或总经验已达上限，跳过观看。")
 
         coins_exp_today = current_reward_status.get('coins_exp',0)
         if coins_exp_today < 50 and total_task_exp < 65 :
@@ -524,9 +623,7 @@ class ScriptRunner:
              self.daily_tasks_handler.coin_videos(self.user_config['Cookie'], video_list,
                                              self.current_user_data['coins'], coins_exp_today, total_task_exp)
              self._update_current_reward_status()
-        else:
-            print("投币任务经验已满(API回报投币经验>=50)，或总经验已达上限，跳过投币。")
-
+        else: print("投币任务经验已满(API回报投币经验>=50)，或总经验已达上限，跳过投币。")
 
     def _handle_play_mode(self):
         print("\n--- 测试视频播放上报 ---")
@@ -534,6 +631,14 @@ class ScriptRunner:
         if not video_list: print("\n未能获取到可用视频列表，无法测试播放。"); return
         self.daily_tasks_handler.watch_video(self.user_config['Cookie'], video_list, is_play_mode=True)
         self._update_current_reward_status()
+
+    def _handle_manga_tasks(self):
+        print("\n--- 执行漫画任务 ---")
+        if not self.user_config.get('Manga_Task', {}).get('Enabled', False):
+            print("漫画任务模块未在配置中启用。"); return
+        self.manga_task_handler.perform_clock_in(self.user_config['Cookie'])
+        time.sleep(random.randint(2,5))
+        self.manga_task_handler.perform_manga_read(self.user_config['Cookie'])
 
     def run(self):
         while True:
@@ -547,6 +652,8 @@ class ScriptRunner:
 
                 if action == '1': self._handle_daily_tasks()
                 elif action == '2': self._handle_play_mode()
+                elif action == '3' and self.user_config.get('Manga_Task', {}).get('Enabled', False):
+                    self._handle_manga_tasks()
                 elif action == '0': print("\n用户选择退出。"); break
 
                 print("\n" + "="*30 + " 操作结束 " + "="*30)
