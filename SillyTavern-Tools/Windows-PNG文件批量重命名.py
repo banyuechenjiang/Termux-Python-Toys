@@ -12,22 +12,21 @@ from tkinter import filedialog
 from PIL import Image # Pillow
 from typing import Optional, List, Tuple, Dict, Any, Set
 from dataclasses import dataclass, field
-import math # For ceil
+import math
 
 # === 全局配置 ===
-PROGRAM_VERSION = "v4.9-PureImageHandle"
+PROGRAM_VERSION = "v5.0"
 DHASH_SIZE = 8
 DHASH_SIMILARITY_THRESHOLD = 10
 SD_RAW_TEXT_PARAM_KEYWORDS = ["steps:", "sampler:", "cfg scale:", "seed:", "size:", "model hash:", "model:"]
 NAI_SOFTWARE_TAG_LOWER = "novelai"
 NAI_COMMENT_JSON_EXPECTED_KEYS = {"prompt", "steps", "sampler", "seed", "uc"}
 
-# --- 新增信号常量 ---
-SIGNAL_PIC_CHARA_CARD = "CHARA_CARD" # 用于区分角色卡和其他图片类型
+SIGNAL_PIC_CHARA_CARD = "CHARA_CARD"
 SIGNAL_PIC_NAI_PARAMS = "__PIC_NAI_PARAMS__"
 SIGNAL_PIC_SD_PARAMS = "__PIC_SD_PARAMS__"
 SIGNAL_PIC_MIXED_SOURCE = "__PIC_MIXED_SOURCE__"
-SIGNAL_PIC_NO_TEXT_PURE_IMAGE = "__PIC_NO_TEXT_PURE_IMAGE__" # 修改
+SIGNAL_PIC_NO_TEXT_PURE_IMAGE = "__PIC_NO_TEXT_PURE_IMAGE__"
 SIGNAL_SKIP_OTHER_TEXT_NO_TYPE = "__SKIP__OTHER_TEXT_NO_RECOGNIZED_TYPE__"
 SIGNAL_SKIP_FILE_ERROR = "__SKIP__FILE_ERROR__"
 SIGNAL_SKIP_UNKNOWN_READ_ERROR = "__SKIP__UNKNOWN_READ_ERROR__"
@@ -35,7 +34,6 @@ SIGNAL_UNKNOWN_CHARA_NO_NAME = "UnknownChara_NoName"
 SIGNAL_UNKNOWN_CHARA_PARSE_ERROR = "UnknownChara_ParseError"
 
 
-# === 数据类定义 ===
 @dataclass
 class DetailedCharaData:
     norm_name: Optional[str] = None
@@ -46,28 +44,27 @@ class DetailedCharaData:
 class ProcessedFileInfo:
     original_filepath: str
     new_filepath: str
-    # initial_meta_name: 对于角色卡是名字，对于参数图/纯图片是类型信号
-    initial_meta_name_or_type_signal: str 
+    initial_meta_name_or_type_signal: str
     is_character_card: bool = False
     is_sd_params_pic: bool = False
     is_nai_params_pic: bool = False
     is_mixed_source_pic: bool = False
-    is_pure_image_pic: bool = False # 新增
+    is_pure_image_pic: bool = False
     file_total_size_kb: int = 0
     file_text_size_kb: int = 0
-    chara_json_str: Optional[str] = None # 仅角色卡
+    chara_json_str: Optional[str] = None
     file_hash: Optional[str] = None
     dhash: Optional[str] = None
-    detailed_chara_data: Optional[DetailedCharaData] = None # 仅角色卡
+    detailed_chara_data: Optional[DetailedCharaData] = None
 
 @dataclass
-class PureImagePendingRenameInfo: # 用于暂存待用户确认重命名的纯图片信息
+class PureImagePendingRenameInfo:
     original_filepath: str
-    target_new_filename_base: str # 不含后缀和冲突处理的 _idx
+    target_new_filename_base: str
     root_path: str
     file_total_size_kb: int
 
-# === 辅助函数 - PNG元数据处理 ===
+
 def _is_sd_parameter_text_content(text_content: str) -> bool:
     if not text_content: return False
     text_lower = text_content.lower()
@@ -93,11 +90,11 @@ def read_chara_json_and_text_size_from_png(png_file_path: str) -> Tuple[Optional
 
     try:
         with open(png_file_path, 'rb') as f:
-            reader = png.Reader(file=f); raw_chunks = list(reader.chunks()) # type: ignore
+            reader = png.Reader(file=f); raw_chunks = list(reader.chunks())
             for chunk_type, chunk_data in raw_chunks:
                 if chunk_type == b'tEXt':
                     has_any_text_chunk = True
-                    total_text_chunk_bytes += len(chunk_data) # 累加原始chunk数据长度
+                    total_text_chunk_bytes += len(chunk_data)
                     try:
                         keyword_bytes, text_bytes_raw = chunk_data.split(b'\x00', 1)
                         keyword_str_lower = keyword_bytes.decode('utf-8', errors='ignore').lower()
@@ -112,9 +109,9 @@ def read_chara_json_and_text_size_from_png(png_file_path: str) -> Tuple[Optional
                                 name_from_data = data_root.get("data", {}).get("name") if isinstance(data_root.get("data"), dict) else None
                                 if isinstance(name_from_data, str) and name_from_data.strip():
                                     initial_chara_name_signal = sanitize_filename_component(name_from_data.strip())
-                                else: # 尝试顶层name/displayName
+                                else:
                                     name_top = data_root.get("name"); disp_name_top = data_root.get("displayName")
-                                    chosen_name = (name_top.strip() if isinstance(name_top, str) and name_top.strip() else 
+                                    chosen_name = (name_top.strip() if isinstance(name_top, str) and name_top.strip() else
                                                    (disp_name_top.strip() if isinstance(disp_name_top, str) and disp_name_top.strip() else None))
                                     initial_chara_name_signal = sanitize_filename_component(chosen_name) if chosen_name else SIGNAL_UNKNOWN_CHARA_NO_NAME
                                 chara_payload = chara_payload_temp
@@ -131,22 +128,22 @@ def read_chara_json_and_text_size_from_png(png_file_path: str) -> Tuple[Optional
                         elif keyword_str_lower == 'source':
                             try: source_tag_text = text_bytes_raw.decode('utf-8', errors='strict')
                             except UnicodeDecodeError: pass
-                    except ValueError: pass 
+                    except ValueError: pass
 
-            if not has_any_text_chunk: return None, 0, SIGNAL_PIC_NO_TEXT_PURE_IMAGE # 修改
+            if not has_any_text_chunk: return None, 0, SIGNAL_PIC_NO_TEXT_PURE_IMAGE
 
             if chara_payload and initial_chara_name_signal and \
                initial_chara_name_signal != SIGNAL_UNKNOWN_CHARA_NO_NAME and \
                initial_chara_name_signal != SIGNAL_UNKNOWN_CHARA_PARSE_ERROR:
-                return chara_payload, total_text_chunk_bytes, initial_chara_name_signal # 角色卡信号是名字
-            
+                return chara_payload, total_text_chunk_bytes, initial_chara_name_signal
+
             is_nai_software = software_tag_text and NAI_SOFTWARE_TAG_LOWER in software_tag_text.lower()
             is_nai_comment_valid = _is_nai_parameter_json_content_in_comment(nai_comment_json_text)
             if is_nai_software and is_nai_comment_valid: return None, total_text_chunk_bytes, SIGNAL_PIC_NAI_PARAMS
 
             if sd_parameters_text and _is_sd_parameter_text_content(sd_parameters_text):
                 return None, total_text_chunk_bytes, SIGNAL_PIC_SD_PARAMS
-            
+
             is_sd_in_source = source_tag_text and ("stable diffusion" in source_tag_text.lower() or "sd" in source_tag_text.lower())
             if is_nai_software and is_sd_in_source: return None, total_text_chunk_bytes, SIGNAL_PIC_MIXED_SOURCE
 
@@ -187,7 +184,6 @@ def compare_detailed_chara_data(data1: Optional[DetailedCharaData], data2: Optio
             data1.norm_first_mes == data2.norm_first_mes and
             data1.book_entries_set_str == data2.book_entries_set_str)
 
-# === 辅助函数 - 文件名、哈希、dhash、中文检测 ===
 def sanitize_filename_component(filename_part: str) -> str:
     if not filename_part: return "Unnamed"
     return re.sub(r'[\\/:*?"<>|\r\n\t]', '_', filename_part)
@@ -217,19 +213,16 @@ def compare_dhashes(hash1: Optional[str], hash2: Optional[str]) -> bool:
     return sum(c1 != c2 for c1, c2 in zip(hash1, hash2)) <= DHASH_SIMILARITY_THRESHOLD
 
 def _extract_size_info_from_filename(filename_basename: str) -> Tuple[int, int, str]:
-    # 匹配 Pic-纯图片-XXXKB-Counter.png
     pure_match = re.search(r'Pic-纯图片-(\d+)KB-\d+.*?\.png$', filename_basename)
     if pure_match:
-        try: return (int(pure_match.group(1)), 0, filename_basename) # 纯图片 text_size_kb 视为 0
+        try: return (int(pure_match.group(1)), 0, filename_basename)
         except ValueError: pass
-    # 匹配 Name-XXXKB&YYYKB-Counter.png
     text_match = re.search(r'-(\d+)KB&(\d+)KB-\d+.*?\.png$', filename_basename)
     if text_match:
         try: return (int(text_match.group(1)), int(text_match.group(2)), filename_basename)
         except ValueError: pass
     return (0, 0, filename_basename)
 
-# === 查看PNG的tEXt Chunks (输出到控制台) ===
 def _decode_generic_text_chunk_data_for_viewer(chunk_data: bytes) -> Tuple[Optional[str], Any, str]:
     keyword_str: Optional[str] = None; text_bytes_raw: Optional[bytes] = None
     try:
@@ -266,7 +259,7 @@ def view_png_all_text_chunks_console():
     text_chunks_found = 0
     try:
         with open(filepath, 'rb') as f:
-            reader = png.Reader(file=f); # type: ignore
+            reader = png.Reader(file=f)
             for chunk_type, chunk_data in reader.chunks():
                 if chunk_type == b'tEXt':
                     text_chunks_found += 1
@@ -285,26 +278,27 @@ def view_png_all_text_chunks_console():
     except Exception as e: print(f"  处理PNG时发生错误: {e}\n")
     print("-" * 20)
 
-# === 核心处理函数 ===
 GLOBAL_FILE_COUNTER = 0
 
-def _phase1_scan_and_rename(directory: str, verbose_output_for_rename: bool) -> List[ProcessedFileInfo]:
+def _phase1_scan_and_rename(directory: str, verbose_output_for_rename: bool, rename_log: List[Dict[str, str]]) -> List[ProcessedFileInfo]:
     global GLOBAL_FILE_COUNTER; GLOBAL_FILE_COUNTER = 0
     character_cards_info: List[ProcessedFileInfo] = []
     skipped_count_various_reasons = 0; files_iterated_in_walk = 0
     renamed_sd_params_count = 0; renamed_nai_params_count = 0
-    renamed_mixed_source_count = 0; renamed_pure_image_count = 0 # 新增纯图片计数
+    renamed_mixed_source_count = 0; renamed_pure_image_count = 0
     
-    # 用于暂存原始文件名含中文的纯图片，等待用户确认是否重命名
     pure_image_cjk_filenames_to_rename_later: List[PureImagePendingRenameInfo] = []
 
     print("\n[阶段 1/3] 逐一扫描、重命名PNG文件...")
-    for root, _, files in os.walk(directory):
+    for root, dirs, files in os.walk(directory):
+        if 'log-png' in dirs:
+            dirs.remove('log-png')
+
         relative_root_path = os.path.relpath(root, directory)
         if relative_root_path == ".": relative_root_path = ""
         renames_in_current_root_chara = 0; renames_in_current_root_sd = 0
         renames_in_current_root_nai = 0; renames_in_current_root_mixed = 0
-        renames_in_current_root_pure = 0 # 当前目录纯图片计数
+        renames_in_current_root_pure = 0
 
         for filename in files:
             files_iterated_in_walk +=1
@@ -318,7 +312,7 @@ def _phase1_scan_and_rename(directory: str, verbose_output_for_rename: bool) -> 
                 SIGNAL_PIC_NO_TEXT_PURE_IMAGE, SIGNAL_SKIP_OTHER_TEXT_NO_TYPE,
                 SIGNAL_SKIP_FILE_ERROR, SIGNAL_SKIP_UNKNOWN_READ_ERROR,
                 SIGNAL_UNKNOWN_CHARA_NO_NAME, SIGNAL_UNKNOWN_CHARA_PARSE_ERROR
-            ] and name_or_type_signal is not None) # 角色卡信号是名字
+            ] and name_or_type_signal is not None)
 
             is_sd_params = (name_or_type_signal == SIGNAL_PIC_SD_PARAMS)
             is_nai_params = (name_or_type_signal == SIGNAL_PIC_NAI_PARAMS)
@@ -336,7 +330,7 @@ def _phase1_scan_and_rename(directory: str, verbose_output_for_rename: bool) -> 
                 if verbose_output_for_rename: print(f"  警告(P1): {filename} 大小获取失败，跳过。");
                 skipped_count_various_reasons +=1; continue
             
-            if not is_pure_image: # 只有非纯图片才计算文本大小
+            if not is_pure_image:
                  total_text_chunk_size_kb = math.ceil(total_text_chunk_size_bytes / 1024)
 
             base_name_for_file = name_or_type_signal 
@@ -347,7 +341,7 @@ def _phase1_scan_and_rename(directory: str, verbose_output_for_rename: bool) -> 
             
             if is_pure_image:
                 new_filename_base = f"{base_name_for_file}-{file_size_kb}KB-{GLOBAL_FILE_COUNTER}"
-            else: # 角色卡或其他有文本的图片
+            else:
                 new_filename_base = (f"{base_name_for_file}-"
                                      f"{file_size_kb}KB&{total_text_chunk_size_kb}KB-"
                                      f"{GLOBAL_FILE_COUNTER}")
@@ -365,46 +359,43 @@ def _phase1_scan_and_rename(directory: str, verbose_output_for_rename: bool) -> 
             perform_rename_now = True
 
             if is_pure_image and _contains_chinese_char(filename):
-                perform_rename_now = False # 默认不重命名含中文的纯图片
+                perform_rename_now = False
                 pure_image_cjk_filenames_to_rename_later.append(
                     PureImagePendingRenameInfo(
                         original_filepath=original_filepath,
-                        target_new_filename_base=new_filename_base, # Pic-纯图片-size-counter
+                        target_new_filename_base=new_filename_base,
                         root_path=root,
                         file_total_size_kb=file_size_kb
                     )
                 )
-                # 即使暂时不重命名，也计入纯图片总数，因为它可能稍后被重命名
                 renames_in_current_root_pure += 1 
                 renamed_pure_image_count += 1
                 if verbose_output_for_rename:
                     print(f"  暂缓(P1): {filename} (纯图片,含中文,待确认) -> 目标: {actual_new_filename_for_print}")
 
-
             if perform_rename_now and original_filepath != final_new_filepath:
                 if "SillyTavern" in root and "characters" in root.lower() and is_character_card:
                      print(f"  ST警告(P1): 重命名角色卡 {filename} -> {actual_new_filename_for_print}")
-                try: os.rename(original_filepath, final_new_filepath); renamed_this_file = True
+                try:
+                    os.rename(original_filepath, final_new_filepath)
+                    renamed_this_file = True
+                    rename_log.append({"original_path": original_filepath, "new_path": final_new_filepath})
                 except OSError as e:
                     if verbose_output_for_rename: print(f"  错误(P1): 重命名失败 {filename} -> {actual_new_filename_for_print}: {e}")
                     skipped_count_various_reasons +=1; continue 
             
             file_type_str = "无法识别类型"
-            # 只有当实际执行了重命名，或者文件名原本就符合目标格式，或者是非中文纯图片时，才增加计数
-            # 对于中文纯图片，计数已在上面处理
             if (renamed_this_file or (original_filepath == final_new_filepath and perform_rename_now)):
                 if is_character_card: renames_in_current_root_chara += 1; file_type_str = "角色卡"
                 elif is_sd_params: renames_in_current_root_sd +=1; file_type_str = "SD参数图"
                 elif is_nai_params: renames_in_current_root_nai +=1; file_type_str = "NAI参数图"
                 elif is_mixed_source: renames_in_current_root_mixed +=1; file_type_str = "混合来源图"
-                elif is_pure_image and perform_rename_now: # 只有非中文纯图片执行了重命名才在这里计数
+                elif is_pure_image and perform_rename_now:
                     renames_in_current_root_pure += 1; file_type_str = "纯图片"; renamed_pure_image_count +=1
             
             if verbose_output_for_rename and renamed_this_file and perform_rename_now:
                  print(f"  {relative_root_path if relative_root_path else '.'}: {filename} -> {actual_new_filename_for_print} ({file_type_str})")
             
-            # 只有非纯图片或者执行了重命名的纯图片才创建 ProcessedFileInfo 并加入列表
-            # (因为纯图片且含中文的，如果用户选择不重命名，则不应进入后续分析)
             if not (is_pure_image and not perform_rename_now):
                 p_info_obj = ProcessedFileInfo(
                     original_filepath=original_filepath, new_filepath=final_new_filepath,
@@ -414,17 +405,15 @@ def _phase1_scan_and_rename(directory: str, verbose_output_for_rename: bool) -> 
                     is_sd_params_pic=is_sd_params,
                     is_nai_params_pic=is_nai_params,
                     is_mixed_source_pic=is_mixed_source,
-                    is_pure_image_pic=is_pure_image, # 标记为纯图片
+                    is_pure_image_pic=is_pure_image,
                     file_total_size_kb=file_size_kb, 
                     file_text_size_kb=total_text_chunk_size_kb if not is_pure_image else 0
                 )
                 if is_character_card: character_cards_info.append(p_info_obj)
-                # SD, NAI, Mixed 的计数在 renamed_this_file or original_filepath == final_new_filepath 时已累加
                 if is_sd_params and (renamed_this_file or original_filepath == final_new_filepath): renamed_sd_params_count +=1
                 if is_nai_params and (renamed_this_file or original_filepath == final_new_filepath): renamed_nai_params_count +=1
                 if is_mixed_source and (renamed_this_file or original_filepath == final_new_filepath): renamed_mixed_source_count +=1
-                # 纯图片的 renamed_pure_image_count 已在上面处理
-            
+
             GLOBAL_FILE_COUNTER += 1
         
         summary_parts = []
@@ -443,7 +432,7 @@ def _phase1_scan_and_rename(directory: str, verbose_output_for_rename: bool) -> 
     if renamed_sd_params_count > 0: print(f"    {renamed_sd_params_count} 个被识别为SD参数文件。")
     if renamed_nai_params_count > 0: print(f"    {renamed_nai_params_count} 个被识别为NAI参数文件。")
     if renamed_mixed_source_count > 0: print(f"    {renamed_mixed_source_count} 个被识别为混合来源文件。")
-    if renamed_pure_image_count > 0: print(f"    {renamed_pure_image_count} 个被识别为纯图片文件 (部分可能待确认重命名)。") # 修改提示
+    if renamed_pure_image_count > 0: print(f"    {renamed_pure_image_count} 个被识别为纯图片文件 (部分可能待确认重命名)。")
     if skipped_count_various_reasons > 0: print(f"  跳过 {skipped_count_various_reasons} 个文件 (数据不足、错误等)。")
     
     if pure_image_cjk_filenames_to_rename_later:
@@ -454,8 +443,6 @@ def _phase1_scan_and_rename(directory: str, verbose_output_for_rename: bool) -> 
         if user_confirm_rename_cjk_pure == 'y':
             renamed_cjk_pure_count = 0
             for item_to_rename in pure_image_cjk_filenames_to_rename_later:
-                # 重新构建目标文件名，因为全局计数器可能已变，但这里我们用之前的计数器值
-                # 注意：new_filename_base 已经包含了正确的计数器
                 new_filename = item_to_rename.target_new_filename_base + ".png"
                 new_filepath_candidate = os.path.join(item_to_rename.root_path, new_filename)
                 
@@ -469,6 +456,7 @@ def _phase1_scan_and_rename(directory: str, verbose_output_for_rename: bool) -> 
                     try:
                         os.rename(item_to_rename.original_filepath, final_new_filepath_confirm)
                         renamed_cjk_pure_count +=1
+                        rename_log.append({"original_path": item_to_rename.original_filepath, "new_path": final_new_filepath_confirm})
                         if verbose_output_for_rename:
                             print(f"  确认重命名(纯图片,中文): {os.path.basename(item_to_rename.original_filepath)} -> {os.path.basename(final_new_filepath_confirm)}")
                     except OSError as e:
@@ -486,18 +474,18 @@ def _phase2_identify_groups_and_compute_data(character_cards_info: List[Processe
     grouped_by_initial_name: Dict[str, List[ProcessedFileInfo]] = collections.defaultdict(list)
     for p_info in character_cards_info:
         if p_info.is_character_card: grouped_by_initial_name[p_info.initial_meta_name_or_type_signal].append(p_info)
-    
+
     processed_groups_filled_data: Dict[str, List[ProcessedFileInfo]] = {}
     exact_duplicates_by_meta_name: Dict[str, List[str]] = collections.defaultdict(list); found_any_exact_duplicates = False
 
     for initial_name, group_files_info_list in grouped_by_initial_name.items():
-        if len(group_files_info_list) < 1: continue 
+        if len(group_files_info_list) < 1: continue
         files_in_group_with_data: List[ProcessedFileInfo] = []
         hashes_in_this_group: Dict[str, List[str]] = collections.defaultdict(list)
         for p_info_item in group_files_info_list:
             p_info_item.file_hash = calculate_file_hash(p_info_item.new_filepath)
             p_info_item.detailed_chara_data = extract_and_normalize_key_chara_data(p_info_item.chara_json_str)
-            p_info_item.chara_json_str = None 
+            p_info_item.chara_json_str = None
             p_info_item.dhash = calculate_dhash(p_info_item.new_filepath)
             files_in_group_with_data.append(p_info_item)
             if p_info_item.file_hash: hashes_in_this_group[p_info_item.file_hash].append(p_info_item.new_filepath)
@@ -507,7 +495,7 @@ def _phase2_identify_groups_and_compute_data(character_cards_info: List[Processe
                 if len(paths_with_same_hash) > 1:
                     exact_duplicates_by_meta_name[initial_name].extend(paths_with_same_hash)
                     found_any_exact_duplicates = True
-                
+
     print("\n--- 内容完全相同的精确重复角色卡 (阶段 2 完成) ---")
     if not found_any_exact_duplicates: print("  无")
     else:
@@ -541,7 +529,7 @@ def _phase3_detailed_comparison_report(processed_groups_with_data: Dict[str, Lis
                     potential_similar_items_by_name[initial_name].add(p_info1.new_filepath)
                     potential_similar_items_by_name[initial_name].add(p_info2.new_filepath)
                     found_any_potential_similarity_in_phase3 = True
-    
+
     if not found_any_potential_similarity_in_phase3: print("  未找到其他潜在的相似角色卡。")
     else:
         print("\n--- 潜在的相似角色卡 (非精确重复，按元数据名分组) ---")
@@ -604,7 +592,7 @@ def _phase4_generate_fine_grained_report(
                 if meta_similar and visual_similar: report_type_a[initial_name].append(ordered_pair_paths_relative)
                 elif meta_similar: report_type_b[initial_name].append(ordered_pair_paths_relative)
                 elif visual_similar: report_type_c[initial_name].append(ordered_pair_paths_relative)
-    
+
     if not any([report_type_a, report_type_b, report_type_c]): print("  未找到符合 Type A, B, C 分类的相似角色卡。")
     else:
         def output_sorted_pairs(report_dict: Dict[str, List[Tuple[str,str]]], type_name: str, base_dir_for_lookup: str, all_data_groups_for_lookup: Dict[str, List[ProcessedFileInfo]]):
@@ -623,22 +611,155 @@ def _phase4_generate_fine_grained_report(
         if report_type_c: output_sorted_pairs(report_type_c, "C (仅角色卡视觉相似)", directory_base, all_processed_data_groups)
     print("--- 精细报告结束 ---")
 
+
+def save_rename_log(log_entries: List[Dict[str, str]], log_filepath: str):
+    if not log_entries:
+        return
+    try:
+        os.makedirs(os.path.dirname(log_filepath), exist_ok=True)
+        with open(log_filepath, 'w', encoding='utf-8') as f:
+            json.dump(log_entries, f, indent=2, ensure_ascii=False)
+    except Exception as e:
+        print(f"\n  错误：无法保存日志文件到 {log_filepath}，原因: {e}")
+
 def rename_and_detect_duplicates_recursive(directory: str, verbose_rename_output: bool):
     print(f"\n--- 开始处理目录: {directory} ---"); start_time = time.time()
-    character_cards_info_list = _phase1_scan_and_rename(directory, verbose_rename_output)
+    
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    log_dir = os.path.join(script_dir, "log-png")
+    log_filename = f"rename_log_{time.strftime('%Y%m%d_%H%M%S')}.json"
+    log_filepath = os.path.join(log_dir, log_filename)
+    
+    rename_log_entries: List[Dict[str, str]] = []
+
+    character_cards_info_list = _phase1_scan_and_rename(directory, verbose_rename_output, rename_log_entries)
+    
+    if rename_log_entries:
+        save_rename_log(rename_log_entries, log_filepath)
+        print(f"\n  阶段1发生 {len(rename_log_entries)} 次重命名, 临时日志已创建: {log_filepath}")
+
     if not character_cards_info_list:
-        print("  操作结束 (阶段1未识别出可供进一步分析的角色卡)。"); return
+        print("  操作结束 (阶段1未识别出可供进一步分析的角色卡)。")
+        if rename_log_entries:
+            print(f"  最终日志已确认保存。")
+        return
+
     processed_chara_groups_with_data = _phase2_identify_groups_and_compute_data(character_cards_info_list, directory, verbose_rename_output)
     potential_similar_chara_groups_for_phase4 = _phase3_detailed_comparison_report(processed_chara_groups_with_data, directory, verbose_rename_output)
+    
     end_time = time.time()
     print(f"\n--- 主要阶段处理完成 (扫描了 {GLOBAL_FILE_COUNTER} 个PNG文件) ---"); print(f"总耗时: {end_time - start_time:.2f} 秒")
+
+    if rename_log_entries:
+        save_rename_log(rename_log_entries, log_filepath) # 更新最终日志
+        print(f"  包含 {len(rename_log_entries)} 条记录的最终操作日志已保存/更新到: {log_filepath}")
+    else:
+        print("  本次操作没有执行任何文件重命名。")
+
     if potential_similar_chara_groups_for_phase4 and any(len(s) > 1 for s in potential_similar_chara_groups_for_phase4.values()):
         if input("\n是否生成更精细的角色卡相似性报告 (阶段4)? (y/n, 默认 n): ").strip().lower() == 'y':
             _phase4_generate_fine_grained_report(potential_similar_chara_groups_for_phase4, processed_chara_groups_with_data, directory)
         else: print("  已跳过生成精细报告。")
     else: print("  阶段3未发现可供精细报告的角色卡组，跳过阶段4询问。")
 
-# === 主函数 (main) ===
+def undo_renames_from_log():
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    log_dir = os.path.join(script_dir, "log-png")
+
+    if not os.path.isdir(log_dir) or not os.listdir(log_dir):
+        print(f"\n错误: 未找到 '{log_dir}' 文件夹或其中没有任何日志文件。")
+        return
+
+    log_files = sorted([f for f in os.listdir(log_dir) if f.lower().endswith(".json")], reverse=True)
+    if not log_files:
+        print(f"\n错误: '{log_dir}' 文件夹中没有找到 .json 日志文件。")
+        return
+        
+    print("\n请选择要用于撤销操作的日志文件:")
+    for i, f in enumerate(log_files):
+        print(f"  {i+1}. {f}")
+    
+    log_path_to_undo = None
+    try:
+        choice_str = input(f"请输入选项 (1-{len(log_files)}), 或输入 0 取消: ").strip()
+        if choice_str == '0':
+             print("  操作已取消。")
+             return
+        choice_idx = int(choice_str) - 1
+        if 0 <= choice_idx < len(log_files):
+            log_path_to_undo = os.path.join(log_dir, log_files[choice_idx])
+        else:
+            print("  无效的选项。")
+            return
+    except (ValueError, IndexError):
+        print("  输入无效，请输入一个列表中的数字。")
+        return
+
+    try:
+        with open(log_path_to_undo, 'r', encoding='utf-8') as f:
+            log_data = json.load(f)
+    except FileNotFoundError:
+        print(f"  错误: 日志文件未找到: {log_path_to_undo}")
+        return
+    except json.JSONDecodeError:
+        print(f"  错误: 日志文件格式不正确，无法解析: {log_path_to_undo}")
+        return
+    except Exception as e:
+        print(f"  读取日志文件时发生未知错误: {e}")
+        return
+
+    if not isinstance(log_data, list) or not all(isinstance(i, dict) and 'original_path' in i and 'new_path' in i for i in log_data):
+        print("  错误: 日志文件内容格式不符合预期。")
+        return
+
+    if not log_data:
+        print("  日志文件为空，无需执行任何操作。")
+        return
+
+    print(f"\n即将根据日志文件 '{os.path.basename(log_path_to_undo)}' 撤销 {len(log_data)} 个文件重命名。")
+    if input("  请确认是否继续? (y/n): ").strip().lower() != 'y':
+        print("  操作已由用户取消。")
+        return
+
+    undone_count, skipped_count, error_count = 0, 0, 0
+    for entry in reversed(log_data):
+        original_path, new_path = entry['original_path'], entry['new_path']
+        if not os.path.exists(new_path):
+            print(f"  跳过: 文件 '{new_path}' 不存在，可能已被移动或删除。")
+            skipped_count += 1
+            continue
+        if os.path.exists(original_path):
+            print(f"  跳过: 目标路径 '{original_path}' 已存在文件，为防止覆盖已跳过。")
+            skipped_count += 1
+            continue
+        try:
+            os.rename(new_path, original_path)
+            print(f"  成功: '{os.path.basename(new_path)}' -> '{os.path.basename(original_path)}'")
+            undone_count += 1
+        except OSError as e:
+            print(f"  错误: 无法撤销 '{new_path}' -> '{original_path}': {e}")
+            error_count += 1
+
+    print("\n--- 撤销操作完成 ---")
+    print(f"  成功撤销: {undone_count} 个文件")
+    if skipped_count > 0: print(f"  跳过操作: {skipped_count} 个文件 (目标不存在或为防止覆盖)")
+    if error_count > 0: print(f"  发生错误: {error_count} 个文件")
+    
+    while True:
+        delete_choice = input(f"\n是否删除此日志文件 '{os.path.basename(log_path_to_undo)}'? (y/n): ").lower()
+        if delete_choice == 'y':
+            try:
+                os.remove(log_path_to_undo)
+                print(f"  日志文件 '{os.path.basename(log_path_to_undo)}' 已删除。")
+            except OSError as e:
+                print(f"  删除日志文件失败: {e}")
+            break
+        elif delete_choice == 'n':
+            print("  日志文件已保留。")
+            break
+        else:
+            print("  无效的输入，请输入 'y' 或 'n'。")
+
 def main():
     root_tk_for_dialog = tkinter.Tk(); root_tk_for_dialog.withdraw()
     while True:
@@ -646,8 +767,9 @@ def main():
         print("  1. [批量] 处理PNGs (脚本所在文件夹)")
         print("  2. [批量] 处理PNGs (选择其他文件夹)")
         print("  3. [单文件] 查看PNG tEXt元数据 (控制台)")
+        print("  4. [撤销] 根据log日志撤销重命名操作")
         print("  0. 退出")
-        choice = input("选项 (0-3): ").strip(); target_directory = ""
+        choice = input("选项 (0-4): ").strip(); target_directory = ""
         verbose_rename_output_flag = False
 
         if choice == '1': target_directory = os.path.dirname(os.path.abspath(__file__))
@@ -656,6 +778,7 @@ def main():
             if selected_dir: target_directory = selected_dir
             else: print("  未选文件夹。"); continue
         elif choice == '3': view_png_all_text_chunks_console(); continue
+        elif choice == '4': undo_renames_from_log(); continue
         elif choice == '0': print("  退出。"); break
         else: print("  无效选项。"); continue
 
