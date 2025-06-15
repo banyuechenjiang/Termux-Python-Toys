@@ -1,303 +1,418 @@
 import os
 import json
 import re
-import tkinter as tk
-from tkinter import filedialog, messagebox
-from typing import Tuple
+import time
+import collections
+from datetime import datetime
 
-# 全局配置
-CONFIG = {
-    'tag_position': 'prefix',  # 初始位置：前缀
-    'brackets': '【】',  # 默认括号类型
-    'bracket_pairs': {
-        '[]': ('[', ']'),
-        '［］': ('［', '］'),
-        '「」': ('「', '」'),
-        '『』': ('『', '』'),
-        '【】': ('【', '】'),
-        '〖〗': ('〖', '〗'),
 
-    }
-}
+USE_GUI = True
 
-def sanitize_filename(filename: str) -> str:
-    """文件名净化"""
-    return re.sub(r'[\\/*?:"<>|]', '_', filename)
+LOG_SUBDIR = "log-Regex"
+DUPLICATE_SUFFIX = "_DUPLICATE"
+REGEX_KEYS_REQUIRED = [
+    "scriptName", "findRegex", "replaceString", "disabled",
+    "markdownOnly", "promptOnly", "runOnEdit"
+]
 
-def extract_tag(text: str) -> str:
-    """
-    从文本中提取标签（根据设置中的括号类型）。
-    """
-    left_bracket, right_bracket = CONFIG['bracket_pairs'][CONFIG['brackets']]
-    if text.startswith(left_bracket) and text.endswith(right_bracket):
-        return text[len(left_bracket):-len(right_bracket)]
-    return text
 
-def remove_existing_tags(directory: str) -> None:
-    """移除标签"""
-    files_modified = 0
-    for root, _, files in os.walk(directory):
-        for filename in files:
-            if filename.endswith(".json"):
-                filepath = os.path.join(root, filename)
-                try:
-                    with open(filepath, 'r', encoding='utf-8') as f:
-                        data = json.load(f)
-
-                    if "scriptName" in data:
-                        script_name = data["scriptName"]
-                        modified_script_name = script_name
-
-                        # 循环移除最外层的标签
-                        while True:
-                            original_script_name = modified_script_name
-                            # 尝试移除各种括号类型的标签
-                            for left, right in CONFIG['bracket_pairs'].values():
-                                modified_script_name = re.sub(rf'^{re.escape(left)}.*?{re.escape(right)}[-_\s]*', '', modified_script_name)  # 开头
-                                modified_script_name = re.sub(rf'[-_\s]*{re.escape(left)}.*?{re.escape(right)}$', '', modified_script_name)  # 结尾
-                            modified_script_name = modified_script_name.strip()
-                            if modified_script_name == original_script_name:  # 没有变化，退出循环
-                                break
-
-                        # 清理多余的连接符
-                        modified_script_name = re.sub(r'[-_\s]+', '-', modified_script_name)
-
-                        if modified_script_name != script_name:
-                            data["scriptName"] = modified_script_name
-
-                            # 更新文件名
-                            new_filename = f"正则-{modified_script_name}.json"
-                            new_filepath = os.path.join(root, filename)
-                            # 处理文件名冲突
-                            i = 1
-                            while os.path.exists(new_filepath):
-                                base, ext = os.path.splitext(new_filename)
-                                new_filename = f"{base}_{i}{ext}"
-                                new_filepath = os.path.join(os.path.dirname(filepath), new_filename)
-                                i += 1
-
-                            with open(new_filepath, 'w', encoding='utf-8') as f:
-                                json.dump(data, f, indent=2, ensure_ascii=False)
-
-                            os.remove(filepath)
-                            print(f"  已移除标签并重命名: {filename} -> {new_filename}")
-                            files_modified += 1
-
-                except (json.JSONDecodeError, OSError) as e:
-                    print(f"  处理文件 '{filename}' 时出错: {e}")
-
-    if files_modified == 0:
-        print("没有找到需要移除标签的文件。")
-
-def process_json_file(filepath: str, tag: str = "") -> Tuple[bool, str, str]:
-    """处理单个文件"""
+def load_and_validate_regex_json(filepath):
     try:
-        with open(filepath, 'r', encoding='utf-8') as f:
+        with open(filepath, 'r', encoding='utf-8-sig') as f:
             data = json.load(f)
-
-        if not all(key in data for key in ["scriptName", "findRegex", "replaceString"]):
-            print(f"  跳过: 文件 '{os.path.basename(filepath)}' 缺少必要键。")
-            return False, "", ""
-
-        original_script_name = data.get("scriptName", "")
-        script_name = sanitize_filename(original_script_name)
-        modified_script_name = script_name  # 初始化
-        left_bracket, right_bracket = CONFIG['bracket_pairs'][CONFIG['brackets']]
-
-        if tag:
-            # tag 已经在 process_subdirectories_with_tag 中被正确提取
-
-            # 1. 更精确地匹配现有标签及其前后缀
-            existing_tag_match = re.match(r'^(.*?)((?:[-_ ]*\.json)|(?:[-_ ]+.*\.json))$', script_name)
-            if existing_tag_match:
-                prefix = existing_tag_match.group(1)
-                suffix = existing_tag_match.group(2)
-                tag_search = re.search(r'[' + re.escape(''.join(CONFIG['bracket_pairs'].keys())) + r']', prefix)
-
-                if tag_search: #找到了
-                    existing_brackets = prefix[tag_search.start():tag_search.end()]
-                    _, existing_right = CONFIG['bracket_pairs'][existing_brackets]
-                    old_tag_full = prefix[tag_search.start():]
-                    modified_script_name = script_name.replace(old_tag_full, f"{left_bracket}{tag}{right_bracket}") # 替换
-                else:
-                    answer = messagebox.askyesno( # 没找到
-                        "添加标签",
-                        f"scriptName '{script_name}' 不符合当前标签格式。\n\n是否要添加标签 '{tag}'？",
-                    )
-                    if answer:
-                        if CONFIG['tag_position'] == 'prefix':
-                            modified_script_name = f"{left_bracket}{tag}{right_bracket}-{script_name}"
-                        else:
-                            modified_script_name = f"{script_name}-{left_bracket}{tag}{right_bracket}"
-                    else:
-                        print(f"用户取消，跳过文件：{script_name} 的修改")
-            else: # 匹配失败
-                if CONFIG['tag_position'] == 'prefix':
-                    modified_script_name = f"{left_bracket}{tag}{right_bracket}-{script_name}"
-                else:
-                    modified_script_name = f"{script_name}-{left_bracket}{tag}{right_bracket}"
+        if all(key in data for key in REGEX_KEYS_REQUIRED):
+            return data
+    except (json.JSONDecodeError, OSError, UnicodeDecodeError):
+        return None
+    return None
 
 
-            # 清理
-            modified_script_name = re.sub(r'^[\[「『【](.*?)[\s_-]*[\]」』】]$', r'\1', modified_script_name)
-            modified_script_name = re.sub(r'[\s_-]+', '-', modified_script_name)  # 多个空格、_、- 替换为单个-
-            data["scriptName"] = modified_script_name  # 更新
+def sanitize_filename(name):
+    if not name:
+        return "未命名"
+    return re.sub(r'[\\/*?:"<>|]', '_', name).strip()
 
-        new_filename = f"正则-{modified_script_name}.json"
-        new_filepath = os.path.join(os.path.dirname(filepath), new_filename)
 
-        # 处理文件名冲突
-        i = 1
-        while os.path.exists(new_filepath):
-            base, ext = os.path.splitext(new_filename)
-            new_filename = f"{base}_{i}{ext}"
-            new_filepath = os.path.join(os.path.dirname(filepath), new_filename)
-            i += 1
+def handle_file_collision(filepath):
+    base, ext = os.path.splitext(filepath)
+    i = 1
+    new_filepath = filepath
+    while os.path.exists(new_filepath):
+        new_filepath = f"{base}_{i}{ext}"
+        i += 1
+    return new_filepath
 
-        with open(new_filepath, 'w', encoding='utf-8') as f:
-            json.dump(data, f, indent=2, ensure_ascii=False)
 
-        os.remove(filepath)
-        return True, os.path.basename(filepath), new_filename
+def save_log(log_data, log_filename):
+    os.makedirs(LOG_SUBDIR, exist_ok=True)
+    log_path = os.path.join(LOG_SUBDIR, log_filename)
+    try:
+        with open(log_path, 'w', encoding='utf-8') as f:
+            json.dump(log_data, f, indent=2, ensure_ascii=False)
+        return log_path
+    except OSError as e:
+        print(f"[错误] 无法写入日志文件: {e}")
+        return None
 
-    except (json.JSONDecodeError, OSError) as e:
-        print(f"  处理文件 '{os.path.basename(filepath)}' 时出错: {e}")
-        return False, "", ""
-
-def process_directory(directory: str, tag: str = "", batch_mode: bool = False) -> None:
-    """处理目录"""
-    file_count = 0
-    for root, _, files in os.walk(directory):
-        for filename in files:
-            if filename.endswith(".json"):
-                filepath = os.path.join(root, filename)
-                success, old_filename, new_filename = process_json_file(filepath, tag)
-                if success:
-                    file_count += 1
-                    print(f"  已重命名: '{old_filename}' -> '{new_filename}'")
-    if not batch_mode:
-        print(f"\n共处理了 {file_count} 个 JSON 文件。")
-
-def process_subdirectories_with_tag(directory: str) -> None:
-    """处理子目录"""
-    for item in os.listdir(directory):
-        item_path = os.path.join(directory, item)
-        if os.path.isdir(item_path):
-            print(f"\n处理子文件夹: {item}")
-
-            # 1. 提取 tag *文本*
-            extracted_tag = None
-            detected_brackets = None
-            for bracket_type, (left, right) in CONFIG['bracket_pairs'].items():
-                if item.startswith(left) and item.endswith(right):
-                    detected_brackets = bracket_type
-                    extracted_tag = item[len(left):-len(right)]  # 提取 *文本*
-                    break
-
-            # 2. 检查括号类型是否一致 (恢复选择功能)
-            temp_brackets = CONFIG['brackets']  # 保存当前设置
-            if detected_brackets and detected_brackets != CONFIG['brackets']:
-                response = messagebox.askyesno(
-                    "括号类型不一致",
-                    f"子文件夹 '{item}' 的括号类型 ({detected_brackets}) 与设置 ({CONFIG['brackets']}) 不一致。\n\n"
-                    f"是否要使用子文件夹名称的括号 ({detected_brackets})？\n\n"
-                    "选择“是”将使用子文件夹的括号，选择“否”将使用设置中的括号。",
-                )
-                if response:
-                    CONFIG['brackets'] = detected_brackets  # *临时* 更新
-
-            # 3. 传递 *提取的* tag 文本
-            if extracted_tag is not None:
-                process_directory(item_path, extracted_tag, batch_mode=False)
+def parse_selection(selection_str, max_val):
+    """解析用户输入的选择字符串 (如 '1 3-5 7')"""
+    indices = set()
+    parts = selection_str.replace(',', ' ').split()
+    for part in parts:
+        part = part.strip()
+        if not part:
+            continue
+        try:
+            if '-' in part:
+                start, end = map(int, part.split('-', 1))
+                if start > end:
+                    start, end = end, start
+                for i in range(start, end + 1):
+                    if 1 <= i <= max_val:
+                        indices.add(i - 1)
             else:
-                process_directory(item_path, item, batch_mode=False)
+                i = int(part)
+                if 1 <= i <= max_val:
+                    indices.add(i - 1)
+        except ValueError:
+            # 忽略无效的部分
+            print(f"[警告] 已忽略无效输入部分: '{part}'")
+            continue
+    return sorted(list(indices))
 
-            CONFIG['brackets'] = temp_brackets  # 恢复设置
+def get_target_folders_cli(single_mode=False):
+    """新的命令行文件夹选择逻辑"""
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    print(f"\n将在以下目录中查找文件夹: {script_dir}")
 
-def settings_menu() -> None:
-    """设置菜单"""
-    while True:
-        print("\n设置菜单：")
-        print(f"1. 选择括号类型（当前：{CONFIG['brackets']}）")
-        print(f"2. 切换标签位置 (当前: {'前缀' if CONFIG['tag_position'] == 'prefix' else '后缀'})")
-        print("0. 返回主菜单")
+    try:
+        all_dirs = sorted([
+            d for d in os.listdir(script_dir)
+            if os.path.isdir(os.path.join(script_dir, d)) and d != LOG_SUBDIR and not d.startswith('.')
+        ])
+    except OSError as e:
+        print(f"[错误] 无法读取目录: {e}")
+        return None
 
-        choice = input("请选择 (1, 2, 或 0): ").strip()
+    if not all_dirs:
+        print("未找到任何可处理的子文件夹。")
+        return None
 
-        if choice == '1':
-            print("\n可选的括号类型：")
-            for i, bracket_key in enumerate(CONFIG['bracket_pairs']):
-                print(f"{i+1}. {bracket_key}")
-            bracket_choice = input("请选择括号类型 (输入数字): ").strip()
-            try:
-                bracket_index = int(bracket_choice) - 1
-                if 0 <= bracket_index < len(CONFIG['bracket_pairs']):
-                    CONFIG['brackets'] = list(CONFIG['bracket_pairs'].keys())[bracket_index]
-                    print(f"已选择括号类型: {CONFIG['brackets']}")
-                else:
-                    print("无效的括号类型选择。")
-            except ValueError:
-                print("无效的输入。请输入数字。")
+    print("\n请选择要处理的文件夹:")
+    for i, dirname in enumerate(all_dirs):
+        print(f"  {i + 1}. {dirname}")
 
-        elif choice == '2':
-            if CONFIG['tag_position'] == 'prefix':
-                CONFIG['tag_position'] = 'suffix'
-                print("标签位置已切换为：后缀")
-            else:
-                CONFIG['tag_position'] = 'prefix'
-                print("标签位置已切换为：前缀")
+    if single_mode:
+        prompt = f"\n请输入单个数字 (1-{len(all_dirs)}): "
+    else:
+        prompt = f"\n请选择 (可输入范围如 1-3, 多个用空格隔开如 1 3, 或输入 'a' 全选): "
+    
+    user_input = input(prompt).strip().lower()
 
-        elif choice == '0':
-            break
-        else:
-            print("无效的选项。")
+    if not user_input:
+        print("未做任何选择。")
+        return None
 
-def main() -> None:
-    """主函数"""
+    selected_indices = []
+    if user_input in ['a', 'all']:
+        selected_indices = list(range(len(all_dirs)))
+    else:
+        selected_indices = parse_selection(user_input, len(all_dirs))
+
+    if not selected_indices:
+        print("根据您的输入，没有选中任何有效文件夹。")
+        return None
+    
+    if single_mode and len(selected_indices) > 1:
+        print("单选模式下仅处理第一个有效选择。")
+        selected_indices = [selected_indices[0]]
+
+    selected_paths = [os.path.join(script_dir, all_dirs[i]) for i in selected_indices]
+    
+    print("\n已选择以下文件夹进行处理:")
+    for path in selected_paths:
+        print(f"  - {os.path.basename(path)}")
+        
+    return selected_paths
+
+
+def get_target_folders(single_mode=False):
+    if not USE_GUI:
+        return get_target_folders_cli(single_mode)
+
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+    except ImportError:
+        print("\n[错误] Tkinter 图形库未安装或无法加载。")
+        print("将使用命令行模式进行选择。")
+        return get_target_folders_cli(single_mode)
+
     root = tk.Tk()
     root.withdraw()
-    directory = os.path.dirname(os.path.abspath(__file__))  # 在循环外部初始化
 
-    while True:
-        print("\n请选择操作：")
-        print("1. 处理脚本所在文件夹")
-        print("2. 选择文件夹")
-        print("3. 批量处理子文件夹 (以子文件夹名为 tag)")
-        print("4. 移除现有标签")
-        print("999. 设置")
-        print("0. 退出")
+    if single_mode:
+        target_dir = filedialog.askdirectory(title="请选择一个包含正则文件的子文件夹")
+        return [target_dir] if target_dir else None
+    else:
+        root_dir = filedialog.askdirectory(title="请选择包含多个子文件夹的根目录")
+        if not root_dir:
+            return None
+        return [
+            os.path.join(root_dir, d) for d in os.listdir(root_dir)
+            if os.path.isdir(os.path.join(root_dir, d)) and d != LOG_SUBDIR
+        ]
 
-        choice = input("请选择 (1, 2, 3, 4, 999, 或 0): ").strip()
 
-        if choice == '999':
-            settings_menu()
-        elif choice == '4':  # 移除现有标签 (修复)
-            # directory = os.path.dirname(os.path.abspath(__file__))  # 移到循环外部
-            remove_existing_tags(directory)
-            continue
-        elif choice in ('1', '2', '3'):
-            if choice == '1':
-                # directory = os.path.dirname(os.path.abspath(__file__)) # 移到循环外部
-                print(f"处理脚本所在文件夹: {directory}")
-            elif choice == '2':
-                directory = filedialog.askdirectory(title="选择包含 JSON 文件的文件夹")
-                if not directory:
-                    print("未选择文件夹。")
-                    continue
-                print(f"处理文件夹: {directory}")
-            elif choice == '3':
-                # directory = os.path.dirname(os.path.abspath(__file__)) # 移到循环外部
-                print(f"处理脚本所在文件夹下的子文件夹: {directory}")
-                process_subdirectories_with_tag(directory)
+def phase_one_detect_duplicates(folders_to_scan):
+    print("\n>> 阶段一：检测重复")
+    regex_map = collections.defaultdict(list)
+    local_log_entries = []
+    files_marked = 0
+
+    for folder in folders_to_scan:
+        for filename in os.listdir(folder):
+            if not filename.endswith('.json'):
+                continue
+            filepath = os.path.join(folder, filename)
+            data = load_and_validate_regex_json(filepath)
+            if not data:
                 continue
 
-            tag = input("请输入要添加或修改的标签 (留空则不添加): ").strip()
-            process_directory(directory, tag)
+            flags = (
+                data.get('disabled', False), data.get('markdownOnly', False),
+                data.get('promptOnly', True), data.get('runOnEdit', True)
+            )
+            key = (data['findRegex'], data['replaceString'], flags)
+            regex_map[key].append(filepath)
 
+    for key, paths in regex_map.items():
+        if len(paths) > 1:
+            print("\n[分析] 发现内容完全重复的脚本:")
+            sorted_paths = sorted(paths)
+            for p in sorted_paths:
+                print(f"  - {os.path.relpath(p)}")
+
+            for path_to_mark in sorted_paths:
+                original_path_abs = os.path.abspath(path_to_mark)
+                base_filename, ext = os.path.splitext(os.path.basename(original_path_abs))
+                if base_filename.endswith(DUPLICATE_SUFFIX):
+                    continue
+
+                base, ext = os.path.splitext(original_path_abs)
+                new_path_abs = handle_file_collision(f"{base}{DUPLICATE_SUFFIX}{ext}")
+
+                try:
+                    os.rename(original_path_abs, new_path_abs)
+                    print(f"  [标记] 已重命名: '{os.path.basename(original_path_abs)}' -> '{os.path.basename(new_path_abs)}'")
+                    local_log_entries.append({"original_path": original_path_abs, "new_path": new_path_abs})
+                    files_marked += 1
+                except OSError as e:
+                    print(f"  [错误] 标记文件 '{os.path.basename(original_path_abs)}' 失败: {e}")
+
+    if not files_marked and not any(len(p) > 1 for p in regex_map.values()):
+        print("未发现需要标记的重复文件。")
+
+    return local_log_entries, files_marked
+
+
+def phase_two_apply_tags(folders_to_process):
+    print("\n>> 阶段二：添加标签")
+    local_log_entries = []
+    files_processed, files_skipped = 0, 0
+
+    for folder in folders_to_process:
+        tag = os.path.basename(folder)
+        print(f"\n处理文件夹: '{tag}'")
+        folder_processed_count, folder_skipped_count = 0, 0
+        all_filenames = os.listdir(folder)
+
+        for filename in all_filenames:
+            if not filename.endswith('.json') or DUPLICATE_SUFFIX in filename:
+                continue
+
+            expected_prefix = f"正则-【{tag}】-"
+            if filename.startswith(expected_prefix):
+                files_skipped += 1
+                folder_skipped_count += 1
+                continue
+
+            filepath = os.path.join(folder, filename)
+            data = load_and_validate_regex_json(filepath)
+            if not data:
+                print(f"  [跳过] '{filename}' 不是有效的正则文件或内容不完整。")
+                files_skipped += 1
+                folder_skipped_count += 1
+                continue
+
+            original_script_name = data.get("scriptName", os.path.splitext(filename)[0])
+            sanitized_name = sanitize_filename(original_script_name)
+            new_script_name = f"【{tag}】-{sanitized_name}"
+            data['scriptName'] = new_script_name
+            new_filename_base = f"正则-{new_script_name}.json"
+            original_path_abs = os.path.abspath(filepath)
+            new_path_abs = os.path.join(os.path.dirname(original_path_abs), new_filename_base)
+            new_path_abs = handle_file_collision(new_path_abs)
+
+            try:
+                with open(original_path_abs, 'w', encoding='utf-8') as f:
+                    json.dump(data, f, indent=2, ensure_ascii=False)
+                if original_path_abs.lower() != new_path_abs.lower():
+                    os.rename(original_path_abs, new_path_abs)
+                print(f"  [处理] '{os.path.basename(original_path_abs)}' -> '{os.path.basename(new_path_abs)}'")
+                local_log_entries.append({"original_path": original_path_abs, "new_path": new_path_abs})
+                files_processed += 1
+                folder_processed_count += 1
+            except OSError as e:
+                print(f"  [错误] 处理文件 '{filename}' 失败: {e}")
+
+        if folder_processed_count == 0 and folder_skipped_count > 0:
+            print("  所有有效文件均已正确标记。")
+
+    return local_log_entries, files_processed, files_skipped
+
+
+def run_batch_processing(folders_to_process):
+    if not folders_to_process:
+        print("未选择任何文件夹，操作取消。")
+        return
+
+    print("\n===== 开始处理以下文件夹 =====")
+    for folder in folders_to_process:
+        print(f"- {os.path.relpath(folder)}")
+    print("==============================")
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_filename = f"log_{timestamp}.json"
+    total_log = []
+
+    phase_one_logs, files_marked = phase_one_detect_duplicates(folders_to_process)
+    total_log.extend(phase_one_logs)
+    if phase_one_logs:
+        log_path = save_log(total_log, log_filename)
+        if log_path:
+            print(f"\n[日志] 阶段一操作记录已保存至: {os.path.relpath(log_path)}")
+
+    phase_two_logs, files_processed, files_skipped = phase_two_apply_tags(folders_to_process)
+    total_log.extend(phase_two_logs)
+
+    print("\n--- 任务总结 ---")
+    print(f"总计: 标记 {files_marked} 个重复文件, 新增/更新 {files_processed} 个文件, 跳过 {files_skipped} 个文件。")
+
+    if total_log:
+        log_path = save_log(total_log, log_filename)
+        if log_path:
+            print(f"\n[日志] 完整操作记录已更新至: {os.path.relpath(log_path)}")
+    else:
+        print("\n未执行任何文件操作，无需生成日志。")
+
+
+def undo_from_log():
+    if not os.path.isdir(LOG_SUBDIR) or not os.listdir(LOG_SUBDIR):
+        print("未找到日志文件夹或其中没有任何日志文件。")
+        return
+
+    log_files = sorted(
+        [f for f in os.listdir(LOG_SUBDIR) if f.startswith('log_') and f.endswith('.json')],
+        reverse=True
+    )
+
+    if not log_files:
+        print("未找到可用的日志文件。")
+        return
+
+    print("\n请选择要用于撤销操作的日志文件:")
+    for i, filename in enumerate(log_files):
+        print(f"  {i + 1}. {filename}")
+    print("  0. 返回主菜单")
+
+    try:
+        choice_str = input(f"请选择 (0-{len(log_files)}): ")
+        choice = int(choice_str)
+        if choice == 0: return
+        if not 1 <= choice <= len(log_files):
+            print("无效选择。")
+            return
+        log_to_use = os.path.join(LOG_SUBDIR, log_files[choice - 1])
+    except (ValueError, IndexError):
+        print("无效输入或选择。")
+        return
+
+    try:
+        with open(log_to_use, 'r', encoding='utf-8') as f:
+            log_data = json.load(f)
+    except (OSError, json.JSONDecodeError) as e:
+        print(f"读取日志文件 '{os.path.basename(log_to_use)}' 失败: {e}")
+        return
+
+    if not log_data:
+        print("日志文件为空，无需操作。")
+        return
+
+    print(f"\n将从 '{os.path.basename(log_to_use)}' 撤销 {len(log_data)} 个操作。")
+    if input("您确定要继续吗? (y/n): ").lower() != 'y':
+        print("操作已取消。")
+        return
+
+    success, skipped, failed = 0, 0, 0
+    for entry in reversed(log_data):
+        original_path, new_path = entry['original_path'], entry['new_path']
+        if not os.path.exists(new_path):
+            skipped += 1
+            continue
+        if os.path.exists(original_path):
+            skipped += 1
+            continue
+        try:
+            os.rename(new_path, original_path)
+            success += 1
+        except OSError:
+            failed += 1
+
+    print(f"\n撤销完成: {success} 个成功, {skipped} 个跳过, {failed} 个失败。")
+
+    if input(f"是否删除已使用的日志文件 '{os.path.basename(log_to_use)}'? (y/n): ").lower() == 'y':
+        try:
+            os.remove(log_to_use)
+            print("日志文件已删除。")
+        except OSError as e:
+            print(f"删除日志文件失败: {e}")
+
+
+def main():
+    global USE_GUI
+    while True:
+        print("\n" + "=" * 30)
+        print("  正则脚本文件批量处理器")
+        print("=" * 30)
+        mode_text = "图形选择 (Tkinter)" if USE_GUI else "命令行模式 "
+        print(f"当前UI模式: {mode_text}\n")
+        print("1. 处理单个文件夹")
+        print("2. 批量处理子文件夹")
+        print("3. 撤销操作")
+        print("0. 退出")
+
+        choice = input("\n请选择 (0-3), 或输入 't' 切换UI模式: ").strip().lower()
+
+        if choice == 't':
+            USE_GUI = not USE_GUI
+            print(f"\n模式已切换为: {'图形模式' if USE_GUI else '命令行模式'}")
+            continue
+
+        if choice == '1':
+            folders = get_target_folders(single_mode=True)
+            if folders: run_batch_processing(folders)
+        elif choice == '2':
+            folders = get_target_folders(single_mode=False)
+            if folders: run_batch_processing(folders)
+        elif choice == '3':
+            undo_from_log()
         elif choice == '0':
-            print("退出程序。")
+            print("程序已退出。")
             break
         else:
-            print("无效的选项。")
+            print("无效的选项，请重新输入。")
+
+
 if __name__ == "__main__":
     main()
