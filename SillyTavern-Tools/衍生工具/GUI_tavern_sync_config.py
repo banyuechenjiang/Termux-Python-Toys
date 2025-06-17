@@ -7,6 +7,7 @@ import subprocess
 from pathlib import Path
 import time
 import shutil
+import locale
 
 CONFIG_FILE = "tavern_sync_config.yaml"
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -36,7 +37,7 @@ GUI 脚本说明 (tavern_sync_gui.py):
   "你的配置名称": {
     "世界书本地文件夹": "path/to/your/lorebook_entries_folder",
     "世界书酒馆文件": "path/to/your/lorebook.json",
-    "玩家名": "你的游戏内名字",
+    "玩家名": "你的对话内名字",
     "发布目标文件夹": "path/to/your/publish_folder",
     "角色卡": "path/to/your/character_card.png",
     "源文件文件夹": "path/to/your/source_files_for_publishing"
@@ -45,7 +46,7 @@ GUI 脚本说明 (tavern_sync_gui.py):
 """
 
 COMMAND_DESCRIPTIONS = {
-    "extract": "命令: extract <配置名称> [选项]\n\n将世界书提取成独立文件。\n\n- 选项:\n  --no_detect: 禁用格式自动检测，所有条目提取为 .md 文件。",
+    "extract": "命令: extract <配置名称> [选项]\n\n将世界书提取成独立文件。\n\n- 选项:\n  --no_detect: 禁用格式自动检测，所有条目提取为 .md 文件。\n  --group: 将 标题'合集名&条目名' 格式的条目，合并为合集文件。",
     "push": "命令: push <配置名称> [选项]\n\n将独立文件推送到世界书。\n\n- 选项:\n  --no_trim: 推送时不压缩条目内容。",
     "watch": "命令: watch <配置名称> [选项]\n\n实时监听文件改动并自动推送。\n\n- 选项:\n  --no_trim: 监听推送时不压缩条目内容。\n  --port <端口号>: 指定监听端口 (默认: 6620)。",
     "pull": "命令: pull <配置名称> [选项]\n\n将世界书条目拉取到独立文件。",
@@ -170,9 +171,11 @@ class WorldEntryDialog(tk.Toplevel):
             if key == "config_name": continue
             value = var.get().strip()
             if value: data[key] = value
-        if not data.get("世界书本地文件夹") or not data.get("世界书酒馆文件"):
-            messagebox.showerror("错误", "“世界书本地文件夹”和“世界书酒馆文件”为必填项。", parent=self)
+        
+        if not data.get("世界书本地文件夹"):
+            messagebox.showerror("错误", "“世界书本地文件夹”为必填项。", parent=self)
             return
+            
         self.result = (new_name, data)
         self.destroy()
 
@@ -207,8 +210,13 @@ class CommandDialog(tk.Toplevel):
         for cmd in COMMAND_DESCRIPTIONS.keys():
             ttk.Radiobutton(left_pane, text=cmd, variable=self.selected_command, value=cmd, command=self._update_ui).pack(anchor=tk.W)
         ttk.Label(left_pane, text="\n参数选项:").pack(anchor=tk.W)
-        self.vars = {"no_detect": tk.BooleanVar(value=True), "no_trim": tk.BooleanVar(value=True), "should_zip": tk.BooleanVar(value=True), "y": tk.BooleanVar(value=True), "port": tk.StringVar(value="6620")}
-        self.checks = {"no_detect": ttk.Checkbutton(left_pane, text="--no_detect", variable=self.vars["no_detect"]), "no_trim": ttk.Checkbutton(left_pane, text="--no_trim", variable=self.vars["no_trim"]), "should_zip": ttk.Checkbutton(left_pane, text="--should_zip", variable=self.vars["should_zip"])}
+        self.vars = {"no_detect": tk.BooleanVar(value=True), "no_trim": tk.BooleanVar(value=True), "should_zip": tk.BooleanVar(value=True), "y": tk.BooleanVar(value=True), "port": tk.StringVar(value="6620"), "group": tk.BooleanVar(value=False)}
+        self.checks = {
+            "no_detect": ttk.Checkbutton(left_pane, text="--no_detect", variable=self.vars["no_detect"]), 
+            "group": ttk.Checkbutton(left_pane, text="--group (合并合集)", variable=self.vars["group"]),
+            "no_trim": ttk.Checkbutton(left_pane, text="--no_trim", variable=self.vars["no_trim"]), 
+            "should_zip": ttk.Checkbutton(left_pane, text="--should_zip", variable=self.vars["should_zip"])
+        }
         for check in self.checks.values(): check.pack(anchor=tk.W)
         port_frame = ttk.Frame(left_pane)
         port_frame.pack(anchor=tk.W, pady=2)
@@ -233,6 +241,7 @@ class CommandDialog(tk.Toplevel):
         self.desc_text.insert("1.0", COMMAND_DESCRIPTIONS.get(cmd, ""))
         self.desc_text.config(state=tk.DISABLED)
         self.checks["no_detect"].config(state=tk.NORMAL if cmd == "extract" else tk.DISABLED)
+        self.checks["group"].config(state=tk.NORMAL if cmd == "extract" else tk.DISABLED)
         self.checks["no_trim"].config(state=tk.NORMAL if cmd in ["push", "watch"] else tk.DISABLED)
         self.checks["should_zip"].config(state=tk.NORMAL if cmd == "publish" else tk.DISABLED)
         self.port_entry.config(state=tk.NORMAL if cmd == "watch" else tk.DISABLED)
@@ -242,6 +251,7 @@ class CommandDialog(tk.Toplevel):
         self.selected_command_str = cmd
         parts = ["python", "tavern_sync.py", cmd, f'"{self.config_name}"']
         if self.vars["no_detect"].get() and cmd == "extract": parts.append("--no_detect")
+        if self.vars["group"].get() and cmd == "extract": parts.append("--group")
         if self.vars["no_trim"].get() and cmd in ["push", "watch"]: parts.append("--no_trim")
         if self.vars["should_zip"].get() and cmd == "publish": parts.append("--should_zip")
         if cmd == "watch": parts.append(f'--port {self.vars["port"].get()}')
@@ -257,7 +267,7 @@ class CommandDialog(tk.Toplevel):
 class MainApp(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("Tavern Sync 配置与运行助手 (v5.5)")
+        self.title("Tavern Sync 配置与运行助手 (v5.0)")
         self.geometry("900x650")
         default_font = ("微软雅黑", BASE_FONT_SIZE)
         self.option_add("*Font", default_font)
@@ -304,7 +314,7 @@ class MainApp(tk.Tk):
             
             creation_flags = subprocess.CREATE_NEW_CONSOLE
             if wait:
-                return subprocess.run(full_command, creationflags=creation_flags, check=False, capture_output=True, text=True)
+                return subprocess.run(full_command, creationflags=creation_flags, check=False, capture_output=True, text=True, encoding=locale.getpreferredencoding(False))
             else:
                 subprocess.Popen(full_command, creationflags=creation_flags)
                 return None
@@ -339,7 +349,8 @@ class MainApp(tk.Tk):
                 renamed_count = self._rename_files_in_dir(target_path, ".md", ".txt")
                 messagebox.showinfo("成功", f"提取成功！\n\n共 {renamed_count} 个文件已提取并重命名为 .txt，\n保存在：'{target_path}'", parent=self)
             elif result:
-                messagebox.showerror("提取失败", "执行提取命令时发生错误。\n请查看终端窗口获取详细信息。", parent=self)
+                error_output = result.stderr or result.stdout
+                messagebox.showerror("提取失败", f"执行提取命令时发生错误。\n\n{error_output.strip()}", parent=self)
         finally:
             self.config_manager.load_config()
             self.config_manager.delete_config(temp_config_name)
@@ -410,6 +421,47 @@ class MainApp(tk.Tk):
             self.config_manager.delete_config(selected_name)
             self.update_treeview()
 
+    def _validate_config(self, config_data, command):
+        def check_path(key, is_dir=False, is_file=False, must_exist=True):
+            if key not in config_data or not config_data.get(key):
+                return f"配置文件缺少 '{key}'"
+            path = Path(config_data[key])
+            if must_exist and not path.exists():
+                return f"路径不存在: '{path}' (配置项: '{key}')"
+            if is_dir and not path.is_dir():
+                return f"路径不是一个文件夹: '{path}' (配置项: '{key}')"
+            if is_file and not path.is_file():
+                return f"路径不是一个文件: '{path}' (配置项: '{key}')"
+            return None
+
+        error = None
+        if command in ['push', 'pull', 'watch', 'to_json', 'to_yaml']:
+            error = check_path('世界书本地文件夹', is_dir=True)
+        elif command == 'extract':
+             error = check_path('世界书酒馆文件', is_file=True)
+        elif command == 'publish':
+            error = check_path('发布目标文件夹', must_exist=False)
+            if not error and '角色卡' not in config_data and '源文件文件夹' not in config_data:
+                error = "无可发布内容，需配置 '角色卡' 或 '源文件文件夹'"
+            if not error and '角色卡' in config_data:
+                error = check_path('角色卡', is_file=True)
+            if not error and '源文件文件夹' in config_data:
+                error = check_path('源文件文件夹', is_dir=True)
+        
+        if error: return False, error
+        
+        if command in ['push', 'pull', 'extract']:
+             error = check_path('世界书酒馆文件', is_file=True)
+        elif command == 'watch':
+            if '世界书酒馆文件' not in config_data and '世界书名称' not in config_data:
+                error = "watch 功能需要配置 '世界书酒馆文件' 或 '世界书名称'"
+            elif '世界书酒馆文件' in config_data:
+                 error = check_path('世界书酒馆文件', is_file=True)
+        
+        if error: return False, error
+
+        return True, None
+
     def run_command(self):
         selected_items = self.tree.selection()
         if not selected_items: return
@@ -418,24 +470,30 @@ class MainApp(tk.Tk):
         if dialog.action:
             if dialog.action == "run":
                 config_data = self.config_manager.get_configs()[selected_name]
-                
-                if dialog.selected_command_str == 'extract':
-                    lorebook_dir_str = config_data.get("世界书本地文件夹")
-                    if lorebook_dir_str:
-                        try:
-                            Path(lorebook_dir_str).mkdir(parents=True, exist_ok=True)
-                        except OSError as e:
-                            messagebox.showerror("错误", f"无法创建文件夹：\n{lorebook_dir_str}\n\n{e}", parent=self)
-                            return
+                command_to_run = dialog.selected_command_str
 
-                should_wait = dialog.selected_command_str != 'watch'
+                is_valid, error_msg = self._validate_config(config_data, command_to_run)
+                if not is_valid:
+                    messagebox.showerror("配置检查失败", f"无法执行 '{command_to_run}' 命令:\n\n{error_msg}", parent=self)
+                    return 
+
+                if command_to_run == 'extract':
+                    lorebook_dir_str = config_data.get("世界书本地文件夹")
+                    try:
+                        Path(lorebook_dir_str).mkdir(parents=True, exist_ok=True)
+                    except OSError as e:
+                        messagebox.showerror("错误", f"无法创建文件夹：\n{lorebook_dir_str}\n\n{e}", parent=self)
+                        return
+
+                should_wait = command_to_run != 'watch'
                 result = self._execute_powershell(dialog.command_string, wait=should_wait)
 
-                if should_wait:
-                    if result and result.returncode == 0:
+                if should_wait and result:
+                    if result.returncode == 0:
                         messagebox.showinfo("成功", f"命令 '{dialog.selected_command_str}' 已成功执行。", parent=self)
-                    elif result:
-                        messagebox.showerror("失败", f"命令 '{dialog.selected_command_str}' 执行失败。\n请查看终端窗口获取详细信息。", parent=self)
+                    else:
+                        error_output = result.stderr or result.stdout
+                        messagebox.showerror("失败", f"命令 '{dialog.selected_command_str}' 执行失败。\n请检查配置或查看终端输出。\n\n错误信息:\n{error_output.strip()}", parent=self)
                         
             elif dialog.action == "copy":
                 self.clipboard_clear()

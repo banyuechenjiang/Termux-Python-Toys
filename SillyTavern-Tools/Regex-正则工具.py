@@ -383,16 +383,16 @@ def main():
     global USE_GUI
     while True:
         print("\n" + "=" * 30)
-        print("  正则脚本文件批量处理器")
+        print("  正则-【Tag】处理")
         print("=" * 30)
         mode_text = "图形选择 (Tkinter)" if USE_GUI else "命令行模式 "
-        print(f"当前UI模式: {mode_text}\n")
+        print(f"当前选择模式: {mode_text}\n")
         print("1. 处理单个文件夹")
         print("2. 批量处理子文件夹")
         print("3. 撤销操作")
         print("0. 退出")
 
-        choice = input("\n请选择 (0-3), 或输入 't' 切换UI模式: ").strip().lower()
+        choice = input("\n请选择 (0-3),\n或输入 't' 切换模式: ").strip().lower()
 
         if choice == 't':
             USE_GUI = not USE_GUI
