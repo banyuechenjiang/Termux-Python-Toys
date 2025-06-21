@@ -14,7 +14,6 @@ CONFIG_YAML_CONTENT = """
 User_Cookie:
   - "你的B站cookie"
   
-# 优先投币UP主列表 (执行投币任务时, 将最先从此列表寻找视频)
 Priority_Ups:
   - id: "476491780"
     name: "SechiAnimation"
@@ -22,7 +21,6 @@ Priority_Ups:
     name: "碧蓝档案"
   - id: "3494361637587456"
     name: "麻雀糖-BA同人短漫"
-
 Appoint_Up:
   - id: "210232"
     name: "瑶山百灵"
@@ -32,37 +30,38 @@ Appoint_Up:
     name: "森羅万象【shinra-bansho】"
   - id: "3493078251866300"
     name: "AliceInCradle官方"
-
 PlayMode_Settings:
   up_selection_strategy: "random_subset"
   num_ups_for_random_subset: 3
   videos_per_up_play_mode: 3
   max_play_duration_local_wait: 120
-
 Manga_Task:
   Enabled: true
   Read_Target:
     comic_id: "27355"
     ep_id: "381662"
     title: "堀与宫村"
-
 Watch_Task_Settings:
   Wait_Time_Min: 3
   Wait_Time_Max: 28
-
 Coin_Task_Settings:
-  # 脚本限制: 为投币任务搜索视频时, 每个UP主最多检查其最新的100个视频。
   min_coin_for_putting: 200
 """
 
 class GlobalConstants:
-    BILI_API_BASE_URL = "https://api.bilibili.com/x/"
-    MANGA_API_BASE_URL = "https://manga.bilibili.com/"
-    DEFAULT_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-    DEFAULT_HEADERS = {"Referer": "https://www.bilibili.com/", "Accept-Language": "zh-CN,zh;q=0.9"}
-    MANGA_HEADERS = {
-        "Origin": MANGA_API_BASE_URL, "Referer": MANGA_API_BASE_URL,
-        "Accept": "application/json", "Content-Type": "application/x-www-form-urlencoded"
+    # BILI_API_BASE_URL - B站API基础URL
+    BABU = "https://api.bilibili.com/x/"
+    # MANGA_API_BASE_URL_TWIRP - B站漫画Twirp API基础URL
+    MABUT = "https://manga.bilibili.com/twirp/"
+    # DEFAULT_USER_AGENT  - 默认用户代理
+    DUA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    # DEFAULT_HEADERS- 默认请求头
+    DH = {"Referer": "https://www.bilibili.com/", "Accept-Language": "zh-CN,zh;q=0.9"}
+    # MANGA_HEADERS- 漫画API请求头
+    MH = {
+        "User-Agent": DUA,
+        "Origin": "https://manga.bilibili.com", "Referer": "https://manga.bilibili.com/",
+        "Accept": "application/json", "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8"
     }
 
 class WbiManager:
@@ -75,9 +74,9 @@ class WbiManager:
     def __init__(self):
         self.img_key = None; self.sub_key = None
         self.html_session_for_wbi = requests.Session()
-        self.html_session_for_wbi.headers.update({"User-Agent": GlobalConstants.DEFAULT_USER_AGENT, **GlobalConstants.DEFAULT_HEADERS})
+        self.html_session_for_wbi.headers.update({"User-Agent": GlobalConstants.DUA, **GlobalConstants.DH})
     def _get_wbi_keys_internal(self, cookies_for_nav_api):
-        nav_url = f"{GlobalConstants.BILI_API_BASE_URL}web-interface/nav"
+        nav_url = f"{GlobalConstants.BABU}web-interface/nav"
         try:
             resp = self.html_session_for_wbi.get(nav_url, cookies=cookies_for_nav_api, timeout=10)
             resp.raise_for_status(); json_data = resp.json()
@@ -162,7 +161,7 @@ class ConfigManager:
 class BiliRequest:
     def __init__(self):
         self.html_session = requests.Session()
-        self.default_headers = {"User-Agent": GlobalConstants.DEFAULT_USER_AGENT, **GlobalConstants.DEFAULT_HEADERS}
+        self.default_headers = {"User-Agent": GlobalConstants.DUA, **GlobalConstants.DH}
         self.wbi_manager = WbiManager()
     def get(self, url: str, cookies: dict, params:dict=None, needs_wbi:bool=False, **kwargs) -> requests.Response | None:
         headers_to_use = {**self.default_headers, **kwargs.pop('headers', {})}
@@ -191,13 +190,13 @@ class UserHandler:
     def __init__(self, request_handler: BiliRequest):
         self.request_handler = request_handler
         self.urls = {
-            "UserData": f"{GlobalConstants.BILI_API_BASE_URL}space/myinfo",
-            "DailyRewardStatus": f"{GlobalConstants.BILI_API_BASE_URL}member/web/exp/reward"
+            "UUD": f"{GlobalConstants.BABU}space/myinfo",
+            "UDRS": f"{GlobalConstants.BABU}member/web/exp/reward"
         }
     def get_user_data(self, cookie: dict) -> tuple[str, int, int, int, int, bool, bool, int]:
         default_return = ("未知", 0, 0, 0, 0, True, False, 0)
         if not cookie: print("Cookie为空."); return default_return
-        response = self.request_handler.get(self.urls['UserData'], cookie)
+        response = self.request_handler.get(self.urls['UUD'], cookie)
         if not response: return default_return
         try:
             res_json = response.json()
@@ -221,7 +220,7 @@ class UserHandler:
     def get_daily_reward_status(self, cookie: dict) -> dict:
         default_status = {'login':False,'watch':False,'share':False,'coins_exp':0,'total_exp_today':0}
         if not cookie: return default_status
-        response = self.request_handler.get(self.urls['DailyRewardStatus'], cookie)
+        response = self.request_handler.get(self.urls['UDRS'], cookie)
         if response and response.json().get('code') == 0:
             data = response.json().get('data', {})
             status = {k:data.get(k,False) for k in ['login','watch','share']}
@@ -241,79 +240,80 @@ class DailyTasksHandler:
     def __init__(self, request_handler: BiliRequest):
         self.request_handler = request_handler
         self.urls = {
-            "ShareVideo": f"{GlobalConstants.BILI_API_BASE_URL}web-interface/share/add",
-            "WatchVideo": f"{GlobalConstants.BILI_API_BASE_URL}click-interface/web/heartbeat",
-            "PutCoin": f"{GlobalConstants.BILI_API_BASE_URL}web-interface/coin/add",
-            "ArchiveRelation": f"{GlobalConstants.BILI_API_BASE_URL}web-interface/archive/relation",
-            "SpaceArcSearch": f"{GlobalConstants.BILI_API_BASE_URL}space/wbi/arc/search",
-            "SpaceAccInfo": f"{GlobalConstants.BILI_API_BASE_URL}space/acc/info",
-            "VideoViewInfo": f"{GlobalConstants.BILI_API_BASE_URL}web-interface/view"
+            "USV": f"{GlobalConstants.BABU}web-interface/share/add",
+            "UWV": f"{GlobalConstants.BABU}click-interface/web/heartbeat",
+            "UPC": f"{GlobalConstants.BABU}web-interface/coin/add",
+            "UAR": f"{GlobalConstants.BABU}web-interface/archive/relation",
+            "USAS": f"{GlobalConstants.BABU}space/wbi/arc/search",
+            "USAI": f"{GlobalConstants.BABU}space/acc/info",
+            "UVVI": f"{GlobalConstants.BABU}web-interface/view"
         }
         self._up_name_cache = {}
     def _get_up_name_by_mid(self, mid: str, cookie: dict) -> str | None:
         if mid in self._up_name_cache: return self._up_name_cache[mid]
-        resp = self.request_handler.get(self.urls['SpaceAccInfo'], cookie, params={'mid': mid})
+        resp = self.request_handler.get(self.urls['USAI'], cookie, params={'mid': mid})
         if resp and resp.json().get('code') == 0: self._up_name_cache[mid] = resp.json()['data']['name']; return self._up_name_cache[mid]
         return None
     def _check_video_coin_status(self, cookie: dict, aid: str) -> int:
-        resp = self.request_handler.get(self.urls['ArchiveRelation'], cookie, params={'aid': aid})
+        resp = self.request_handler.get(self.urls['UAR'], cookie, params={'aid': aid})
         return resp.json()['data'].get('coin', 0) if resp and resp.json().get('code') == 0 else -1
     def get_video_details_from_view_api(self, aid_or_bvid: str, cookie: dict, id_type:str = "aid") -> dict | None:
         params = {id_type: aid_or_bvid}
-        response = self.request_handler.get(self.urls['VideoViewInfo'], cookie, params=params)
+        response = self.request_handler.get(self.urls['UVVI'], cookie, params=params)
         if response and response.json().get('code') == 0:
             data = response.json().get('data', {})
             return {'title': data.get('title', '未知标题'), 'duration': data.get('duration', 0),
                     'desc': data.get('desc', ''), 'pic_url': data.get('pic', ''),
                     'aid': str(data.get('aid')), 'bvid': data.get('bvid','')}
         return None
-    def get_videos_from_up_list(self, cookie: dict, up_list: list, for_coin_task: bool = False, videos_per_up_target: int = 3) -> list:
-        if not up_list:
-            if for_coin_task: pass
-            else: print("UP主列表为空.")
+    def get_videos_from_up_list(self, cookie: dict, up_list_to_fetch_from: list, for_coin_task: bool = False, videos_per_up_target: int = 3, needed_for_coin_task: int = 5) -> list:
+        if not up_list_to_fetch_from:
+            if not for_coin_task: print("UP主列表为空.")
             return []
-        self.request_handler.wbi_manager._refresh_wbi_keys_internal(cookie)
-        collected_videos = []
-        for up_conf in up_list:
-            mid = up_conf.get('id')
-            if not mid: continue
-            name = up_conf.get('name') or self._get_up_name_by_mid(mid, cookie) or f"MID:{mid}"
-            if for_coin_task:
-                print(f"为投币任务从UP '{name}' 搜索最多2页视频...")
-                page_num, max_pages = 1, 2
-                while page_num <= max_pages:
-                    params_search = {'mid': mid, 'pn': page_num, 'ps': 50, 'order':'pubdate','dm_img_list':'[]','dm_cover_img_str':'V2ViRmlsRTMyNw=='}
-                    resp = self.request_handler.get(self.urls['SpaceArcSearch'], cookie, params=params_search, needs_wbi=True)
-                    if not resp or resp.json().get('code') != 0:
-                        print(f"获取UP '{name}' 第 {page_num} 页视频失败: {resp.json().get('message','未知错误') if resp else '请求错误'}")
-                        break
-                    vlist = resp.json().get('data',{}).get('list',{}).get('vlist',[])
-                    if not vlist: break
-                    for v_data in vlist:
-                        if 'aid' in v_data and self._check_video_coin_status(cookie, str(v_data['aid'])) == 0:
-                            collected_videos.append({'aid': str(v_data['aid']), 'title': v_data.get('title', '?'), 'mid': mid, 'pubdate': v_data.get('created', 0)})
-                    page_num += 1
-                    if page_num <= max_pages: time.sleep(random.uniform(0.5, 1.5))
-            else:
-                print(f"从UP '{name}' 获取 {videos_per_up_target} 个最新视频...")
-                params_search = {'mid': mid, 'pn': 1, 'ps': videos_per_up_target, 'order':'pubdate','dm_img_list':'[]','dm_cover_img_str':'V2ViRmlsRTMyNw=='}
-                resp = self.request_handler.get(self.urls['SpaceArcSearch'], cookie, params=params_search, needs_wbi=True)
-                if resp and resp.json().get('code') == 0:
-                    vlist = resp.json().get('data',{}).get('list',{}).get('vlist',[])
-                    for v_data in vlist:
-                        if 'aid' in v_data: collected_videos.append({'aid': str(v_data['aid']), 'title': v_data.get('title', '?'), 'mid': mid, 'pubdate': v_data.get('created', 0)})
-        unique_videos = list({v['aid']: v for v in collected_videos}.values())
-        final_msg = f"搜索结束，共找到 {len(unique_videos)} 个唯一的符合投币条件的视频。" if for_coin_task else f"获取结束，共找到 {len(unique_videos)} 个视频。"
-        if len(unique_videos) > 0 or not for_coin_task: print(final_msg)
-        return unique_videos
-
+        if not self.request_handler.wbi_manager.img_key or not self.request_handler.wbi_manager.sub_key:
+             self.request_handler.wbi_manager._refresh_wbi_keys_internal(cookie)
+        collected_videos_for_current_up = []
+        up_conf = up_list_to_fetch_from[0]
+        mid = up_conf.get('id')
+        if not mid: return []
+        name = up_conf.get('name') or self._get_up_name_by_mid(mid, cookie) or f"MID:{mid}"
+        if for_coin_task:
+            pages_to_try = [2, 1]
+            max_videos_per_page = 50
+            for page_num in pages_to_try:
+                if len(collected_videos_for_current_up) >= needed_for_coin_task: break
+                params_search = {'mid': mid, 'pn': page_num, 'ps': max_videos_per_page, 'order':'pubdate','dm_img_list':'[]','dm_cover_img_str':'V2ViRmlsRTMyNw=='}
+                resp = self.request_handler.get(self.urls['USAS'], cookie, params=params_search, needs_wbi=True)
+                if not resp or resp.json().get('code') != 0:
+                    if page_num == 2 and pages_to_try == [2,1]: continue
+                    break
+                vlist = resp.json().get('data',{}).get('list',{}).get('vlist',[])
+                if not vlist:
+                    if page_num == 1: break
+                    else: continue
+                for v_data in vlist:
+                    if len(collected_videos_for_current_up) >= needed_for_coin_task: break
+                    if 'aid' in v_data and self._check_video_coin_status(cookie, str(v_data['aid'])) == 0:
+                        video_entry = {'aid': str(v_data['aid']), 'title': v_data.get('title', '?'), 'mid': mid, 'pubdate': v_data.get('created', 0)}
+                        if video_entry['aid'] not in {v['aid'] for v in collected_videos_for_current_up}:
+                            collected_videos_for_current_up.append(video_entry)
+                if page_num != pages_to_try[-1] and len(collected_videos_for_current_up) < needed_for_coin_task:
+                    time.sleep(random.uniform(0.3, 0.8))
+        else:
+            params_search = {'mid': mid, 'pn': 1, 'ps': videos_per_up_target, 'order':'pubdate','dm_img_list':'[]','dm_cover_img_str':'V2ViRmlsRTMyNw=='}
+            resp = self.request_handler.get(self.urls['USAS'], cookie, params=params_search, needs_wbi=True)
+            if resp and resp.json().get('code') == 0:
+                vlist = resp.json().get('data',{}).get('list',{}).get('vlist',[])
+                for v_data in vlist:
+                    if 'aid' in v_data: collected_videos_for_current_up.append({'aid': str(v_data['aid']), 'title': v_data.get('title', '?'), 'mid': mid, 'pubdate': v_data.get('created', 0)})
+        return collected_videos_for_current_up
     def share_video(self, cookie: dict, video_list: list) -> bool:
         print("\n#视频分享任务#")
         if not video_list: print("无视频可分享."); return True
         v = random.choice(video_list); aid, title, csrf = v['aid'], v['title'], cookie.get('bili_jct', '')
         if not csrf: print("分享失败:缺bili_jct"); return False
         print(f"分享视频 '{title}' (AID:{aid})")
-        resp = self.request_handler.post(self.urls['ShareVideo'], cookie, post_data={"aid": aid, "csrf": csrf})
+        resp = self.request_handler.post(self.urls['USV'], cookie, post_data={"aid": aid, "csrf": csrf})
         if resp and resp.json().get('code') == 0: print(f"分享 '{title}' 完成 🥳"); time.sleep(random.randint(3,7)); return True
         elif resp and resp.json().get('code') == 71000: print(f"'{title}' 今日已分享过 😫"); return True
         else: print(f"分享失败 '{title}': {resp.json().get('message', '无API消息') if resp else '请求错误'}"); return False
@@ -329,72 +329,67 @@ class DailyTasksHandler:
         print(f"观看: '{title}' (AID:{aid}), 上报/等待时长:{report_time}s")
         time.sleep(report_time)
         data = {"aid": aid, "played_time": report_time, "csrf": cookie.get('bili_jct', '')}
-        resp = self.request_handler.post(self.urls['WatchVideo'], cookie, post_data=data)
+        resp = self.request_handler.post(self.urls['UWV'], cookie, post_data=data)
         if resp and resp.json().get('code') == 0: print(f"上报成功: '{title}' 🥳"); time.sleep(random.randint(3,7)); return True
         else: print(f"上报失败 '{title}': {resp.json().get('message', '无API消息') if resp else '请求错误'}"); return False
     def coin_videos(self, cookie: dict, appoint_up_list: list, coins_bal: int, coins_exp: int, coin_task_settings: dict) -> bool:
         print("\n#视频投币任务#")
         min_coin_for_putting = coin_task_settings.get('min_coin_for_putting', 200)
-        if coins_bal < min_coin_for_putting:
-            print(f"硬币({coins_bal})不足{min_coin_for_putting}."); return True
-        if coins_exp >= 50:
-            print("投币经验已满(50)."); return True
+        if coins_bal < min_coin_for_putting: print(f"硬币({coins_bal})不足{min_coin_for_putting}."); return True
+        if coins_exp >= 50: print("投币经验已满(50)."); return True
         csrf = cookie.get('bili_jct', '')
         ops_needed = min(math.ceil((50 - coins_exp) / 10), 5, int(coins_bal))
-        if not csrf or ops_needed <= 0:
-            print("无需投币或缺bili_jct."); return True
+        if not csrf or ops_needed <= 0: print("无需投币或缺bili_jct."); return True
         print(f"目标投币次数: {ops_needed} (当前投币Exp:{coins_exp}/50)")
         thrown_count = 0
+        video_candidate_pool = []
         up_source_pools = [
             (random.sample(coin_task_settings.get('Priority_Ups', []), len(coin_task_settings.get('Priority_Ups', []))), "优先UP"),
             (random.sample(appoint_up_list, len(appoint_up_list)), "指定UP")
         ]
-        video_pool = []
-        current_source_index = 0
-        while thrown_count < ops_needed:
-            if not video_pool:
-                if current_source_index >= len(up_source_pools):
-                    print("\n所有配置的UP主均已检查完毕，无法获取更多可投币视频。")
-                    break
-                up_pool, source_name = up_source_pools[current_source_index]
-                if not up_pool:
-                    current_source_index += 1
-                    continue
-                up_to_fetch = up_pool.pop(0)
-                print(f"\n视频池已空, 从`{source_name}` '{up_to_fetch.get('name', up_to_fetch.get('id'))}' 获取新视频...")
-                new_videos = self.get_videos_from_up_list(cookie, [up_to_fetch], for_coin_task=True)
+        for up_pool_config, source_name in up_source_pools:
+            if thrown_count >= ops_needed: break
+            current_up_pool = list(up_pool_config)
+            while current_up_pool:
+                if thrown_count >= ops_needed: break
+                up_to_fetch = current_up_pool.pop(0)
+                needed_now = ops_needed - thrown_count + 1
+                print(f"\n尝试从`{source_name}` '{up_to_fetch.get('name', up_to_fetch.get('id'))}' 获取最多 {needed_now} 个可投币视频...")
+                new_videos = self.get_videos_from_up_list(cookie, [up_to_fetch], for_coin_task=True, needed_for_coin_task=needed_now)
                 if new_videos:
                     new_videos.sort(key=lambda v: v.get('pubdate', float('inf')))
-                    video_pool.extend(new_videos)
-                else:
-                    if not up_pool: current_source_index += 1
-                    continue
-            if not video_pool: continue
-            v = video_pool.pop(0)
-            if thrown_count >= ops_needed or coins_bal < 1: break
-            aid, title = v['aid'], v['title']
-            print(f"向 '{title}' (av{aid}) 投1币并点赞...")
-            resp = self.request_handler.post(self.urls['PutCoin'], cookie, post_data={'aid':aid,'multiply':1,'select_like':1,'cross_domain':'true','csrf':csrf})
-            if resp and resp.json().get('code') == 0:
-                print(f"投币成功: '{title}' 💿"); thrown_count+=1; coins_bal-=1
-                time.sleep(random.randint(7,15))
-            else:
-                msg = resp.json().get('message', '无API消息') if resp else '请求错误'
-                print(f"投币异常 '{title}': {msg}")
-                if "投币AVID" in msg: coins_bal = max(0, coins_bal - 1)
-            if not up_source_pools[current_source_index][0] and not video_pool: current_source_index += 1
+                    for vid_entry in new_videos:
+                        if vid_entry['aid'] not in {v['aid'] for v in video_candidate_pool}:
+                            video_candidate_pool.append(vid_entry)
+                    print(f"  从 '{up_to_fetch.get('name')}' 获取到 {len(new_videos)} 个新视频，当前总候选池 {len(video_candidate_pool)} 个。")
+                while video_candidate_pool and thrown_count < ops_needed and coins_bal >=1:
+                    v = video_candidate_pool.pop(0)
+                    aid, title = v['aid'], v['title']
+                    print(f"向 '{title}' (av{aid}) 投1币并点赞...")
+                    resp = self.request_handler.post(self.urls['UPC'], cookie, post_data={'aid':aid,'multiply':1,'select_like':1,'cross_domain':'true','csrf':csrf})
+                    if resp and resp.json().get('code') == 0:
+                        print(f"投币成功: '{title}' 💿"); thrown_count+=1; coins_bal-=1
+                        time.sleep(random.randint(7,15))
+                    else:
+                        msg = resp.json().get('message', '无API消息') if resp else '请求错误'
+                        print(f"投币异常 '{title}': {msg}")
+        if thrown_count < ops_needed and not video_candidate_pool:
+            print("\n所有配置的UP主均已检查完毕，未能完成所有目标投币。")
         print(f"\n本轮投币任务结束，共投出 {thrown_count} 枚硬币。")
         return True
 
 class MangaTaskHandler:
     def __init__(self, request_handler: BiliRequest, manga_config: dict):
-        self.request_handler=request_handler; self.manga_config=manga_config
         self.urls={
-            "ClockIn": f"{GlobalConstants.MANGA_API_BASE_URL}twirp/activity.v1.Activity/ClockIn",
-            "AddHistory": f"{GlobalConstants.MANGA_API_BASE_URL}twirp/bookshelf.v1.Bookshelf/AddHistory"
+            "UMCI": f"{GlobalConstants.MABUT}activity.v1.Activity/ClockIn",
+            "UMAH": f"{GlobalConstants.MABUT}bookshelf.v1.Bookshelf/AddHistory"
         }
     def _handle_manga_post(self, url: str, cookie: dict, post_data: dict, task_name: str, title: str) -> bool:
-        resp = self.request_handler.post(url, cookie, post_data=post_data, headers=GlobalConstants.MANGA_HEADERS)
+        csrf_token = cookie.get('bili_jct')
+        if not csrf_token:
+            print(f"漫画{task_name}失败: 缺少bili_jct (csrf_token)"); return False
+        data_with_csrf = {**post_data, "csrf": csrf_token, "platform":"android"}
+        resp = self.request_handler.post(url, cookie, post_data=data_with_csrf, headers=GlobalConstants.MH)
         if not resp:
             print(f"漫画{task_name}请求失败: 无响应对象."); return False
         try:
@@ -402,7 +397,7 @@ class MangaTaskHandler:
             if code == 0:
                 print(f"漫画{task_name} '{title}' 成功 🥳"); return True
             msg = res_json.get('msg', res_json.get('message', 'N/A')).lower()
-            if task_name == "签到" and ("cannot clockin repeatedly" in msg or "已签到" in msg or code == 1):
+            if task_name == "签到" and ("cannot clockin repeatedly" in msg or "已签到" in msg or "不能重复签到" in msg or code == 1):
                 print(f"漫画今日已签到过 😊 (API Code: {code}, Msg: \"{res_json.get('msg')}\")"); return True
             print(f"漫画{task_name}失败 '{title}': Code {code}, Msg: \"{res_json.get('message', res_json.get('msg'))}\""); return False
         except requests.exceptions.JSONDecodeError: print(f"漫画{task_name}响应错误: 无法解析JSON - {resp.text[:100]}"); return False
@@ -410,7 +405,7 @@ class MangaTaskHandler:
     def perform_clock_in(self, cookie: dict) -> bool:
         print("\n#漫画签到#")
         if not self.manga_config.get("Enabled",False): print("漫画任务未启用."); return True
-        return self._handle_manga_post(self.urls['ClockIn'], cookie, {'platform':'android'}, "签到", "每日签到")
+        return self._handle_manga_post(self.urls['UMCI'], cookie, {}, "签到", "每日签到")
     def perform_manga_read(self, cookie: dict) -> bool:
         print("\n#漫画阅读#")
         if not self.manga_config.get("Enabled",False): print("漫画任务未启用."); return True
@@ -419,7 +414,7 @@ class MangaTaskHandler:
             print("漫画阅读目标配置不完整."); return True
         comic_id, ep_id, title = rt['comic_id'], rt['ep_id'], rt['title']
         print(f"阅读漫画 '{title}' (Comic ID: {comic_id}, Episode ID: {ep_id})")
-        return self._handle_manga_post(self.urls['AddHistory'], cookie, {'comic_id':comic_id,'ep_id':ep_id}, "阅读", title)
+        return self._handle_manga_post(self.urls['UMAH'], cookie, {'comic_id':comic_id,'ep_id':ep_id}, "阅读", title)
 
 class AutomatedTasksExecutor:
     def __init__(self, config_all: dict, user_handler: UserHandler, daily_tasks_handler: DailyTasksHandler, manga_task_handler: MangaTaskHandler):
@@ -436,41 +431,47 @@ class AutomatedTasksExecutor:
         reward_status_current = initial_reward_status.copy()
         is_lv6 = current_user_data_dict.get('is_lv6', True)
         user_coins = current_user_data_dict.get('coins', 0)
-        print("\n--- 开始执行日常任务 ---")
+        print("\n--- 开始执行日常任务 (自动化模式) ---")
         if is_lv6:
-            print("用户已满级LV6, 无需执行经验任务。"); return reward_status_current
-        if reward_status_current.get('total_exp_today', 0) >= 65:
-            print("每日总经验已达上限(65)，跳过所有日常任务."); return reward_status_current
-        if not reward_status_current.get('share', False):
-            self.manga_task_handler.perform_clock_in(self.user_cookie)
-            self.manga_task_handler.perform_manga_read(self.user_cookie)
+            print("用户已满级LV6, 无需执行经验任务."); return reward_status_current
+        print("\n#漫画任务处理#")
+        if reward_status_current.get('total_exp_today', 0) < 65:
+            if self.manga_task_handler.manga_config.get("Enabled", False):
+                self.manga_task_handler.perform_clock_in(self.user_cookie)
+                self.manga_task_handler.perform_manga_read(self.user_cookie)
+                reward_status_current = self.user_handler.get_daily_reward_status(self.user_cookie)
+            else: print("漫画任务未在配置中启用。")
         else:
-            print("\n#漫画任务检查#\n分享任务已完成，跳过漫画任务。")
-        reward_status_current = self.user_handler.get_daily_reward_status(self.user_cookie)
+            print("每日总经验已达上限(65), 跳过漫画任务.")
         if reward_status_current.get('total_exp_today', 0) >= 65:
-            print("\n经验已满，提前结束任务."); return reward_status_current
-        print("\n#视频任务检查#")
-        if not reward_status_current.get('watch', False) or not reward_status_current.get('share', False):
-            combined_up_list_raw = self.appoint_up_list + self.coin_task_settings.get('Priority_Ups', [])
-            up_pool_for_tasks = list({up['id']: up for up in combined_up_list_raw}.values())
-            if up_pool_for_tasks:
-                random_up_for_tasks = random.choice(up_pool_for_tasks)
-                videos_to_get = self.play_mode_settings.get('videos_per_up_play_mode', 3)
-                videos_for_tasks = self.daily_tasks_handler.get_videos_from_up_list(self.user_cookie, [random_up_for_tasks], for_coin_task=False, videos_per_up_target=videos_to_get)
-                if videos_for_tasks:
-                    if not reward_status_current.get('watch', False):
-                        min_w, max_w = self.watch_task_settings.get('Wait_Time_Min', 3), self.watch_task_settings.get('Wait_Time_Max', 28)
-                        if self.daily_tasks_handler.watch_video(self.user_cookie, videos_for_tasks, min_w, max_w):
-                            reward_status_current = self.user_handler.get_daily_reward_status(self.user_cookie)
-                    if not reward_status_current.get('share', False):
-                        if self.daily_tasks_handler.share_video(self.user_cookie, videos_for_tasks):
-                            reward_status_current = self.user_handler.get_daily_reward_status(self.user_cookie)
-                else: print("无法获取视频，跳过观看和分享任务。")
-        else: print("\n观看/分享任务均已完成, 跳过.")
-        if reward_status_current.get('coins_exp', 0) < 50:
-            self.daily_tasks_handler.coin_videos(self.user_cookie, self.appoint_up_list, user_coins, reward_status_current.get('coins_exp', 0), self.coin_task_settings)
-        else: print("\n投币任务经验已满, 跳过.")
-        print("\n--- 所有日常任务尝试完毕 ---")
+            print("每日总经验已达上限(65)，后续视频经验任务将不再执行。")
+        else:
+            videos_for_watch_share = []
+            if not reward_status_current.get('watch', False) or not reward_status_current.get('share', False):
+                combined_up_list_raw = self.appoint_up_list + self.coin_task_settings.get('Priority_Ups', [])
+                up_pool_for_tasks = list({up['id']: up for up in combined_up_list_raw}.values())
+                if up_pool_for_tasks:
+                    random_up_for_tasks = random.choice(up_pool_for_tasks)
+                    videos_to_get = self.play_mode_settings.get('videos_per_up_play_mode', 1)
+                    print(f"\n为观看/分享任务，从UP '{random_up_for_tasks.get('name', random_up_for_tasks.get('id'))}' 获取 {videos_to_get} 个视频...")
+                    videos_for_watch_share = self.daily_tasks_handler.get_videos_from_up_list(self.user_cookie, [random_up_for_tasks], for_coin_task=False, videos_per_up_target=videos_to_get)
+                    if not videos_for_watch_share: print("未能获取到用于观看/分享的视频。")
+                else: print("无配置的UP主用于获取观看/分享视频。")
+            if not reward_status_current.get('watch', False):
+                if videos_for_watch_share:
+                    min_w, max_w = self.watch_task_settings.get('Wait_Time_Min', 3), self.watch_task_settings.get('Wait_Time_Max', 28)
+                    if self.daily_tasks_handler.watch_video(self.user_cookie, videos_for_watch_share, min_w, max_w):
+                        reward_status_current = self.user_handler.get_daily_reward_status(self.user_cookie)
+                else: print("\n#观看视频任务#\n无视频可观看，跳过。")
+            if reward_status_current.get('total_exp_today', 0) < 65 and not reward_status_current.get('share', False):
+                if videos_for_watch_share:
+                    if self.daily_tasks_handler.share_video(self.user_cookie, videos_for_watch_share):
+                        reward_status_current = self.user_handler.get_daily_reward_status(self.user_cookie)
+                else: print("\n#视频分享任务#\n无视频可分享，跳过。")
+            if reward_status_current.get('total_exp_today', 0) < 65 and reward_status_current.get('coins_exp', 0) < 50 :
+                self.daily_tasks_handler.coin_videos(self.user_cookie, self.appoint_up_list, user_coins, reward_status_current.get('coins_exp', 0), self.coin_task_settings)
+                reward_status_current = self.user_handler.get_daily_reward_status(self.user_cookie)
+        print("\n--- 所有日常任务尝试完毕 (自动化模式) ---")
         return self.user_handler.get_daily_reward_status(self.user_cookie)
 
 class VideoToolsModule:
@@ -512,7 +513,15 @@ class VideoToolsModule:
             if num_to_select > 0: selected_up_list = random.sample(up_list_full, num_to_select)
         if not selected_up_list: print("无UP主可选。"); return []
         videos_per_up = self.play_mode_settings.get('videos_per_up_play_mode', 3)
-        return self.daily_tasks_handler.get_videos_from_up_list(self.user_cookie, selected_up_list, for_coin_task=False, videos_per_up_target=videos_per_up)
+        all_videos = []
+        for up in selected_up_list:
+             new_vids = self.daily_tasks_handler.get_videos_from_up_list(self.user_cookie, [up], for_coin_task=False, videos_per_up_target=videos_per_up)
+             if new_vids:
+                 print(f"  从UP '{up.get('name', up.get('id'))}' 获取到 {len(new_vids)} 个视频。")
+                 all_videos.extend(new_vids)
+        unique_videos = list({v['aid']:v for v in all_videos}.values())
+        print(f"共获取到 {len(unique_videos)} 个视频用于播放。")
+        return unique_videos
     def _handle_play_mode_reporting(self):
         print("\n--- 解析视频播放上报 ---")
         video_list_raw = self._get_videos_for_play_mode()
@@ -535,7 +544,7 @@ class VideoToolsModule:
         if elapsed_play_time == 0: print("未模拟有效播放时长，不上报。"); return
         if input(f"已模拟播放 {elapsed_play_time}s. [1]上报, [任意键]不上报: ").strip() == '1':
             data = {"aid": aid_str, "played_time": elapsed_play_time, "csrf": self.user_cookie.get('bili_jct', '')}
-            resp = self.bili_request.post(self.daily_tasks_handler.urls['WatchVideo'], self.user_cookie, post_data=data)
+            resp = self.bili_request.post(self.daily_tasks_handler.urls['UWV'], self.user_cookie, post_data=data)
             if resp and resp.json().get('code') == 0: print(f"上报成功: '{title}' (时长:{elapsed_play_time}s) 🥳")
             else: print(f"上报失败: '{title}' - {resp.json().get('message') if resp else '请求失败'}")
         else: print("用户选择不上报。")
@@ -551,7 +560,7 @@ class VideoToolsModule:
                 if action == '1': self._handle_play_mode_reporting()
                 elif action == '2': self._handle_cover_url_parsing()
                 elif action == '0': break
-                print("\n" + "="*20 + " 视频工具操作结束 " + "="*20); time.sleep(1)
+                print("\n" + "="*20 + " 操作完成，返回主菜单 " + "="*20); time.sleep(1)
             except KeyboardInterrupt: print("\n当前视频工具操作被用户中断."); break
             except Exception as e: print(f"\n视频工具操作执行中发生异常: {e}"); import traceback; traceback.print_exc(); break
 
@@ -593,14 +602,14 @@ class MainApplication:
                     self.video_tools_module.run()
                 elif choice == '0':
                     print("\n用户选择退出。"); break
-                print("\n" + "="*20 + " 返回主菜单 " + "="*20); time.sleep(1)
+                print("\n" + "="*20 + " 操作完成，返回主菜单 " + "="*20); time.sleep(1)
         except KeyboardInterrupt: print("\n交互模式被用户中断 (Ctrl+C)。")
         except Exception as e: print(f"\n交互模式发生未捕获异常: {e}"); import traceback; traceback.print_exc()
     def run_automated(self):
         print("\n" + "#"*20 + " B站助手已启动 (自动模式) " + "#"*20)
         name, mid, level, exp, coins, is_lv6, success, exp_needed = self.user_handler.get_user_data(self.config['Cookie'])
         if success: self.user_handler.print_user_data_nicely(name, mid, level, exp, coins, is_lv6, exp_needed)
-        else: print("获取用户信息失败，自动任务无法执行。")
+        else: print("获取用户信息失败，自动任务可能无法准确执行。")
         initial_reward_status = self.user_handler.get_daily_reward_status(self.config['Cookie'])
         print("\n--- 初始每日任务状态 ---")
         self.user_handler.print_daily_reward_status_nicely(initial_reward_status)
