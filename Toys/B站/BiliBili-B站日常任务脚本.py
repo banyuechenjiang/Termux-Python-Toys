@@ -12,8 +12,8 @@ import json
 
 CONFIG_YAML_CONTENT = """
 User_Cookie:
-  - "你的B站cookie"
-  
+  - "你的Cookie"
+
 Priority_Ups:
   - id: "476491780"
     name: "SechiAnimation"
@@ -36,7 +36,7 @@ PlayMode_Settings:
   videos_per_up_play_mode: 3
   max_play_duration_local_wait: 120
 Manga_Task:
-  Enabled: true
+  Enabled: True
   Read_Target:
     comic_id: "27355"
     ep_id: "381662"
@@ -380,6 +380,8 @@ class DailyTasksHandler:
 
 class MangaTaskHandler:
     def __init__(self, request_handler: BiliRequest, manga_config: dict):
+        self.request_handler = request_handler
+        self.manga_config = manga_config
         self.urls={
             "UMCI": f"{GlobalConstants.MABUT}activity.v1.Activity/ClockIn",
             "UMAH": f"{GlobalConstants.MABUT}bookshelf.v1.Bookshelf/AddHistory"
@@ -404,12 +406,10 @@ class MangaTaskHandler:
         except Exception as e: print(f"漫画{task_name}响应处理异常: {e}"); return False
     def perform_clock_in(self, cookie: dict) -> bool:
         print("\n#漫画签到#")
-        if not self.manga_config.get("Enabled",False): print("漫画任务未启用."); return True
         return self._handle_manga_post(self.urls['UMCI'], cookie, {}, "签到", "每日签到")
     def perform_manga_read(self, cookie: dict) -> bool:
         print("\n#漫画阅读#")
-        if not self.manga_config.get("Enabled",False): print("漫画任务未启用."); return True
-        rt=self.manga_config.get("Read_Target")
+        rt = self.manga_config.get("Read_Target")
         if not rt or not rt.get('comic_id') or not rt.get('ep_id'):
             print("漫画阅读目标配置不完整."); return True
         comic_id, ep_id, title = rt['comic_id'], rt['ep_id'], rt['title']
@@ -529,8 +529,12 @@ class VideoToolsModule:
         chosen_video_raw = random.choice(video_list_raw); aid_str = chosen_video_raw['aid']
         video_details = self.daily_tasks_handler.get_video_details_from_view_api(aid_str, self.user_cookie)
         if not video_details: print(f"无法获取视频 {aid_str} 的详细信息。"); return
-        title, duration_sec, desc = video_details['title'], video_details['duration'], video_details['desc']
+        title, duration_sec = video_details['title'], video_details['duration']
+        desc, pic_url = video_details['desc'], video_details['pic_url']
+        
         print(f"播放: '{title}' (AID:{aid_str})\n实际时长: {str(timedelta(seconds=duration_sec)) if duration_sec > 0 else '未知'}")
+        print(f"简介:\n{desc if desc else '无'}\n封面URL: {pic_url if pic_url else '无'}")
+        
         max_local_wait = self.play_mode_settings.get('max_play_duration_local_wait', 120)
         report_duration = random.randint(15, 60) if duration_sec <= 0 else min(int(duration_sec * random.uniform(0.6, 1.0)), duration_sec)
         local_wait_target = max(1, min(report_duration, max_local_wait))
