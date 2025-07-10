@@ -2,167 +2,175 @@ import json
 import os
 import re
 import sys
+import argparse
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import List, Optional, Dict, Any
 
-def is_valid_quickreply_json(file_path):
-    """
-    # 检查给定的 JSON 文件是否符合 QuickReply 类型的 JSON 文件的基本结构。
-    # Args:
-        file_path (str): JSON 文件的路径。
-    # Returns:
-        bool: 如果文件符合基本结构，则返回 True，否则返回 False。
-    """
-    try:
-        with open(file_path, 'r', encoding='utf-8') as f:
-            data = json.load(f)
+class InvalidQuickReplyError(ValueError):
+    """当QuickReply文件或其内容无效时抛出此异常"""
+    pass
 
-            # 更严格的结构检查
-            if not isinstance(data, dict):
-                print(f"错误：JSON 根不是字典: {file_path}")
-                return False
-            if not all(key in data for key in ["version", "name", "qrList"]):
-                print(f"错误：缺少必要的键 (version, name, qrList): {file_path}")
-                return False
-            if not isinstance(data["version"], int):
-                print(f"错误：'version' 不是整数: {file_path}")
-                return False
-            if not isinstance(data["name"], str):
-                 print(f"错误：'name' 不是字符串: {file_path}")
-                 return False
-            if not isinstance(data["qrList"], list):
-                print(f"错误：'qrList' 不是列表: {file_path}")
-                return False
-            for item in data["qrList"]:
-                if not isinstance(item, dict):
-                    print(f"错误：'qrList' 中的条目不是字典: {file_path}")
-                    return False
-                if not all(key in item for key in ["id", "label", "message", "isHidden"]):
-                    print(f"错误：'qrList' 条目缺少必要的键 (id, label, message, isHidden): {file_path}")
-                    return False
-                # 可以根据需要添加更多类型检查
+@dataclass
+class Config:
+    # 默认文件编码
+    DEFAULT_ENCODING: str = 'utf-8'
+    # 隐藏文件的前缀
+    HIDDEN_FILE_PREFIX: str = "!"
+    # 提取/合并的文件扩展名
+    FILE_EXTENSION: str = ".txt"
+    # 文件名中的非法字符正则表达式
+    INVALID_FILENAME_CHARS: str = r'[\\/*?:"<>|]'
+    # 合并时默认的QR版本号
+    QR_VERSION: int = 2
+    # 根JSON对象必须包含的键
+    QR_REQUIRED_KEYS: List[str] = field(default_factory=lambda: ["version", "name", "qrList"])
+    # qrList中每个条目必须包含的键
+    QR_ITEM_REQUIRED_KEYS: List[str] = field(default_factory=lambda: ["id", "label", "message", "isHidden"])
 
+class QuickReplyItem:
+    def __init__(self, data: Dict[str, Any]):
+        self._data = data
+
+    @property
+    def label(self) -> str:
+        return self._data.get("label", "")
+
+    @property
+    def message(self) -> str:
+        return self._data.get("message", "")
+
+    @message.setter
+    def message(self, value: str):
+        self._data["message"] = value
+
+    @property
+    def is_hidden(self) -> bool:
+        return self._data.get("isHidden", False)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return self._data
+
+class QuickReplyData:
+    def __init__(self, data: Dict[str, Any], source_path: Path):
+        self._data = data
+        self.source_path = source_path
+        self.items = [QuickReplyItem(item_data) for item_data in self._data.get("qrList", [])]
+
+    @property
+    def name(self) -> str:
+        return self._data.get("name", "")
+
+    @classmethod
+    def from_file(cls, file_path: Path, config: Config) -> 'QuickReplyData':
+        try:
+            with file_path.open('r', encoding=config.DEFAULT_ENCODING) as f:
+                data = json.load(f)
+        except FileNotFoundError:
+            raise InvalidQuickReplyError(f"文件未找到: {file_path}")
+        except json.JSONDecodeError as e:
+            raise InvalidQuickReplyError(f"JSON解析错误在文件 {file_path}: {e}")
+        except OSError as e:
+            raise InvalidQuickReplyError(f"无法读取文件 {file_path}: {e}")
+
+        if not isinstance(data, dict) or not all(key in data for key in config.QR_REQUIRED_KEYS):
+            raise InvalidQuickReplyError(f"文件 {file_path.name} 缺少必须的根键。")
+
+        for item_data in data.get("qrList", []):
+            if not isinstance(item_data, dict) or not all(key in item_data for key in config.QR_ITEM_REQUIRED_KEYS):
+                raise InvalidQuickReplyError(f"文件 {file_path.name} 中包含缺少必须键的条目。")
+
+        return cls(data=data, source_path=file_path)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return self._data
+
+@dataclass
+class ProcessResult:
+    successes: List[str] = field(default_factory=list)
+    failures: List[str] = field(default_factory=list)
+    warnings: List[str] = field(default_factory=list)
+
+    def __str__(self):
+        lines = []
+        if self.successes:
+            lines.append(f"成功 ({len(self.successes)}):")
+            lines.extend([f"  - {s}" for s in self.successes])
+        if self.failures:
+            lines.append(f"失败 ({len(self.failures)}):")
+            lines.extend([f"  - {f}" for f in self.failures])
+        if self.warnings:
+            lines.append(f"警告 ({len(self.warnings)}):")
+            lines.extend([f"  - {w}" for w in self.warnings])
+        if not lines:
+            return "未执行任何操作。"
+        return "\n".join(lines)
+
+class QuickReplyService:
+    def __init__(self, config: Config):
+        self.config = config
+
+    def _sanitize_filename(self, name: str) -> str:
+        return re.sub(self.config.INVALID_FILENAME_CHARS, '', name)
+
+    def _write_json(self, data: Dict, path: Path) -> bool:
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with path.open("w", encoding=self.config.DEFAULT_ENCODING) as f:
+                json.dump(data, f, ensure_ascii=False, separators=(',', ':'))
             return True
-    except (FileNotFoundError, json.JSONDecodeError) as e:
-        print(f"错误：读取或解析 JSON 失败: {file_path} - {e}")
-        return False
-
-def extract_from_json(file_path):
-    """
-    # 从 QuickReply JSON 文件中提取信息，并创建文件夹和 TXT 文件。
-
-    # Args:
-        file_path (str): QuickReply JSON 文件的路径。
-    """
-    print(f"正在处理: {file_path}")  # 调试信息
-
-    try:
-        with open(file_path, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-    except FileNotFoundError:
-        print(f"错误：文件未找到: {file_path}")
-        return
-    except json.JSONDecodeError:
-        print(f"错误：JSON 格式错误: {file_path}")
-        return
-
-    name = data.get('name')
-    if not name:
-        print("警告：未找到 'name' 字段，无法创建文件夹。")
-        return
-
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    folder_path = os.path.join(script_dir, name)
-
-    if not os.path.exists(folder_path):
+        except OSError:
+            return False
+        
+    def extract(self, qr_data: QuickReplyData, base_dir: Path) -> ProcessResult:
+        result = ProcessResult()
+        folder_path = base_dir / self._sanitize_filename(qr_data.name)
         try:
-            os.makedirs(folder_path)
+            folder_path.mkdir(parents=True, exist_ok=True)
         except OSError as e:
-            print(f"错误：创建文件夹失败 '{folder_path}': {e}")
-            return
+            result.failures.append(f"创建目录失败 '{folder_path}': {e}")
+            return result
 
-    qr_list = data.get('qrList', [])
-    for qr_item in qr_list:
-        label = qr_item.get('label')
-        message = qr_item.get('message', '')
-        is_hidden = qr_item.get('isHidden', False)
+        for item in qr_data.items:
+            if not item.label:
+                result.warnings.append(f"跳过一个没有标签的条目。")
+                continue
+            safe_label = self._sanitize_filename(item.label)
+            prefix = self.config.HIDDEN_FILE_PREFIX if item.is_hidden else ""
+            file_path = folder_path / f"{prefix}{safe_label}{self.config.FILE_EXTENSION}"
+            try:
+                file_path.write_text(item.message.replace('\\n', '\n'), encoding=self.config.DEFAULT_ENCODING)
+                result.successes.append(f"已提取: {file_path.relative_to(base_dir)}")
+            except OSError as e:
+                result.failures.append(f"创建文件失败 '{file_path}': {e}")
+        return result
 
-        if not label:
-            print("警告：跳过没有 'label' 的 qr_item。")
-            continue
+    def merge(self, directory: Path, output_path: Path) -> ProcessResult:
+        result = ProcessResult()
+        if not directory.is_dir():
+            result.failures.append(f"目录不存在: {directory}")
+            return result
 
-        safe_label = re.sub(r'[\\/*?:"<>|]', '', label)
-        file_name = f"!{safe_label}.txt" if is_hidden else f"{safe_label}.txt"
-        file_path = os.path.join(folder_path, file_name)
-        print(f"  # 正在创建文件: {file_path}") # 调试信息
+        txt_files = sorted(list(directory.glob(f"*{self.config.FILE_EXTENSION}")))
+        if not txt_files:
+            result.warnings.append(f"目录 '{directory}' 中未找到TXT文件。")
+            return result
 
-        try:
-            with open(file_path, 'w', encoding='utf-8') as f:
-                # 写入文件前，将 '\\n' 替换为 '\n'  (如果原始 JSON 中是 \\n)
-                f.write(message.replace('\\n', '\n'))
-            print(f"  # 成功创建文件: {file_path}")
-        except OSError as e:
-            print(f"错误：创建文件失败 '{file_path}': {e}")
+        qr_list = []
+        id_counter = 1
+        for file_path in txt_files:
+            try:
+                content = file_path.read_text(encoding=self.config.DEFAULT_ENCODING)
+                is_hidden = file_path.name.startswith(self.config.HIDDEN_FILE_PREFIX)
+                label_start = len(self.config.HIDDEN_FILE_PREFIX) if is_hidden else 0
+                label = file_path.stem[label_start:]
 
-def select_json_file_and_extract():
-    """
-    # 选择一个 QuickReply JSON 文件并执行提取操作。
-    """
-    json_files = [f for f in os.listdir('.') if f.endswith('.json')]
-    valid_json_files = [f for f in json_files if is_valid_quickreply_json(f)]
-
-    if not valid_json_files:
-        print("未找到 QuickReply 类型的 JSON 文件。")
-        return
-
-    for i, file in enumerate(valid_json_files):
-        print(f"{i + 1}. {file}")
-
-    while True:
-        try:
-            choice = int(input(" 请选择要处理的 QuickReply JSON 文件的编号 (输入0退出): "))
-            if choice == 0:
-                return
-            if 1 <= choice <= len(valid_json_files):
-                selected_file = valid_json_files[choice - 1]
-                extract_from_json(selected_file)
-                break
-            else:
-                print("无效的编号，请重新输入。")
-        except ValueError:
-            print("无效的输入，请输入数字。")
-
-def merge_to_json(directory: str, output_json_path: str):
-    """
-    # 合并指定目录下所有 txt 文件内容到新的 QuickReply JSON 文件。
-
-    # Args:
-       directory (str): 包含 txt 文件的目录。
-       output_json_path (str): 输出的 QuickReply JSON 文件的路径。
-    """
-    print(f"正在合并目录: {directory}")
-
-    txt_files = [f for f in os.listdir(directory) if f.endswith(".txt")]
-    if not txt_files:
-        print(f"警告：目录 '{directory}' 中未找到任何 TXT 文件。")
-        return
-
-    qr_list = []
-    id_counter = 1
-    for txt_file in txt_files:
-        file_path = os.path.join(directory, txt_file)
-        try:
-            with open(file_path, "r", encoding="utf-8") as f:
-                 # 读取时，保留原始换行符 '\n'
-                content = f.read()
-
-                is_hidden = txt_file.startswith("!")
-                label = txt_file[1:-4] if is_hidden else txt_file[:-4]
-                # print(f"label:{label},content:{content}")  # 调试时可以取消注释
-                qr_list.append({
+                item_data = {
                     "id": id_counter,
                     "showLabel": False,
                     "label": label,
                     "title": "",
-                    "message": content,  # 直接使用读取的内容，不替换换行符
+                    "message": content,
                     "contextList": [],
                     "preventAutoExecute": True,
                     "isHidden": is_hidden,
@@ -173,205 +181,223 @@ def merge_to_json(directory: str, output_json_path: str):
                     "executeOnGroupMemberDraft": False,
                     "executeOnNewChat": False,
                     "automationId": ""
-                })
+                }
+                qr_list.append(item_data)
+                result.successes.append(f"已读取: {file_path.name}")
                 id_counter += 1
-            print(f"已读取并添加: {txt_file}")
-        except OSError as e:
-            print(f"错误：读取文件 '{txt_file}' 失败：{e}")
-            return
-
-    output_data = {
-        "version": 2,
-        "name": os.path.basename(directory),
-        "disableSend": False,
-        "placeBeforeInput": False,
-        "injectInput": False,
-        "color": "rgba(0, 0, 0, 0)",
-        "onlyBorderColor": False,
-        "qrList": qr_list,
-        "idIndex": id_counter
-    }
-
-    try:
-        with open(output_json_path, "w", encoding="utf-8") as f:
-            json.dump(output_data, f, ensure_ascii=False)  # 移除 indent=2
-        print(f"成功创建新的 QuickReply JSON 文件: {output_json_path}")
-    except OSError as e:
-        print(f"错误：创建 JSON 文件 '{output_json_path}' 失败: {e}")
-
-def get_quickreply_json_files():
-    """# 获取当前目录下所有符合 QuickReply 结构的 JSON 文件"""
-    all_json_files = [f for f in os.listdir('.') if f.endswith('.json')]
-    quickreply_json_files = [f for f in all_json_files if is_valid_quickreply_json(f)]
-    return quickreply_json_files
-
-def push_to_json(qr_json_path: str, directory: str):
-    """
-    # 从指定目录下的 TXT 文件更新 QuickReply JSON 文件中的 message 字段。
-
-    # Args:
-        qr_json_path (str): 要更新的 QuickReply JSON 文件的路径。
-        directory (str): 包含 TXT 文件的目录。
-    """
-    print(f"正在推送更新到: {qr_json_path}，使用目录: {directory}")
-
-    try:
-        with open(qr_json_path, 'r', encoding='utf-8') as f:
-            qr_data = json.load(f)
-    except FileNotFoundError:
-        print(f"错误：QuickReply JSON 文件未找到: {qr_json_path}")
-        return
-    except json.JSONDecodeError:
-        print(f"错误：QuickReply JSON 文件 JSON 格式错误: {qr_json_path}")
-        return
-
-    file_contents = {}
-    for filename in os.listdir(directory):
-        if filename.endswith(".txt"):
-            filepath = os.path.join(directory, filename)
-            label = filename[:-4]
-            if label.startswith("!"):
-                label = label[1:]
-            try:
-                with open(filepath, "r", encoding="utf-8") as f:
-                    # 读取 TXT 文件时，保留原始换行符
-                    file_contents[label] = f.read()
-
             except OSError as e:
-                print(f"错误：读取文件 '{filepath}' 失败: {e}")
-                return
+                result.failures.append(f"读取文件失败 '{file_path.name}': {e}")
 
-    updated_count = 0
-    for qr_item in qr_data.get("qrList", []):
-        label = qr_item.get("label")
-        if label in file_contents:
-            qr_item["message"] = file_contents[label]  # 更新 message，保留原始换行符
-            updated_count += 1
-            print(f"更新了 '{label}' 的 message")
+        output_data = {
+            "version": self.config.QR_VERSION,
+            "name": directory.name,
+            "disableSend": False,
+            "placeBeforeInput": False,
+            "injectInput": False,
+            "color": "rgba(0, 0, 0, 0)",
+            "onlyBorderColor": False,
+            "qrList": qr_list,
+            "idIndex": id_counter
+        }
 
-    try:
-        with open(qr_json_path, "w", encoding="utf-8") as f:
-            json.dump(qr_data, f, ensure_ascii=False)  # 移除 indent=2
-        print(f"成功更新 QuickReply JSON 文件: {qr_json_path}，更新了 {updated_count} 个条目")
-    except OSError as e:
-        print(f"错误：写入 QuickReply JSON 文件 '{qr_json_path}' 失败: {e}")
+        if self._write_json(output_data, output_path):
+            result.successes.append(f"成功创建JSON: {output_path.relative_to(directory.parent)}")
+        else:
+            result.failures.append(f"写入JSON失败: {output_path}")
+        return result
 
-def get_valid_folders():
-    """
-    # 获取当前目录下的有效文件夹列表。这些文件夹包含 TXT 文件。
+    def push(self, qr_data: QuickReplyData, directory: Path) -> ProcessResult:
+        result = ProcessResult()
+        if not directory.is_dir():
+            result.failures.append(f"目录不存在: {directory}")
+            return result
 
-    # Returns:
-        list: 有效文件夹列表。
-    """
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    folders = [d for d in os.listdir(script_dir) if os.path.isdir(os.path.join(script_dir, d))]
+        file_contents = {}
+        for file_path in directory.glob(f"*{self.config.FILE_EXTENSION}"):
+            try:
+                label_start = len(self.config.HIDDEN_FILE_PREFIX) if file_path.name.startswith(self.config.HIDDEN_FILE_PREFIX) else 0
+                label = file_path.stem[label_start:]
+                file_contents[label] = file_path.read_text(encoding=self.config.DEFAULT_ENCODING)
+            except OSError as e:
+                result.failures.append(f"读取文件失败 '{file_path.name}': {e}")
 
-    valid_folders = []
-    for folder in folders:
-        folder_path = os.path.join(script_dir, folder)
-        if any(f.endswith(".txt") for f in os.listdir(folder_path)):
-            valid_folders.append(folder)
-    return valid_folders
+        if not file_contents and not result.failures:
+            result.warnings.append(f"目录 '{directory.name}' 中没有可用于推送的 .txt 文件。")
+            return result
+
+        updated_count = 0
+        for item in qr_data.items:
+            if item.label in file_contents:
+                new_content = file_contents[item.label]
+                if item.message != new_content:
+                    item.message = new_content
+                    updated_count += 1
+                    result.successes.append(f"准备更新标签: '{item.label}'")
+
+        if updated_count > 0:
+            if self._write_json(qr_data.to_dict(), qr_data.source_path):
+                result.successes.append(f"成功更新 {updated_count} 个条目到 {qr_data.source_path.name}")
+            else:
+                result.failures.append(f"写入更新失败: {qr_data.source_path.name}")
+        else:
+            result.warnings.append("没有找到内容发生变化的匹配标签进行更新。")
+        return result
+
+class AppUI:
+    def display_main_menu(self) -> str:
+        print("\n" + "="*20)
+        print("  QuickReply 工具箱")
+        print("="*20)
+        print("\n请选择要执行的操作:")
+        print("  1. 提取 (将 .json 文件解包成 .txt 文件)")
+        print("  2. 合并 (将文件夹内的 .txt 文件打包成新 .json)")
+        print("  3. 推送 (用 .txt 文件内容更新已有的 .json)")
+        print("  0. 退出")
+        return input("\n请输入选项 (0-3): ")
+
+    def select_from_list(self, items: List[Path], prompt: str) -> Optional[Path]:
+        if not items:
+            self.display_message("列表为空，无法选择。", is_error=True)
+            return None
+        print(prompt)
+        for i, item in enumerate(items):
+            print(f"  {i + 1}. {item.name}")
+        while True:
+            try:
+                choice_str = input(f"请输入编号 (1-{len(items)})，或输入 0 返回: ")
+                if not choice_str: continue
+                choice = int(choice_str)
+                if choice == 0: return None
+                if 1 <= choice <= len(items): return items[choice - 1]
+                else: print("无效的编号，请重新输入。")
+            except ValueError:
+                print("无效的输入，请输入数字。")
+
+    def report_results(self, title: str, result: ProcessResult):
+        print(f"\n--- {title} 执行结果 ---")
+        print(result)
+        print("--------------------------")
+
+    def display_message(self, message: str, is_error: bool = False):
+        prefix = "错误: " if is_error else ""
+        print(f"\n{prefix}{message}")
+
+class Application:
+    def __init__(self, ui: AppUI, service: QuickReplyService, config: Config):
+        self.ui = ui
+        self.service = service
+        self.config = config
+        try:
+            self.base_dir = Path(sys.argv[0]).parent.resolve() if getattr(sys, 'frozen', False) else Path(__file__).parent.resolve()
+        except NameError:
+            self.base_dir = Path.cwd()
+
+    def _get_valid_qr_files(self) -> List[Path]:
+        valid_files = []
+        for f in self.base_dir.glob('*.json'):
+            try:
+                QuickReplyData.from_file(f, self.config)
+                valid_files.append(f)
+            except InvalidQuickReplyError:
+                continue
+        return valid_files
+
+    def _get_valid_folders(self) -> List[Path]:
+        return [d for d in self.base_dir.iterdir() if d.is_dir() and any(d.glob(f"*{self.config.FILE_EXTENSION}"))]
+
+    def run_interactive(self):
+        while True:
+            choice = self.ui.display_main_menu()
+            if choice == "1": self.handle_extract_interactive()
+            elif choice == "2": self.handle_merge_interactive()
+            elif choice == "3": self.handle_push_interactive()
+            elif choice == "0": self.ui.display_message("退出程序。"); break
+            else: self.ui.display_message("无效的选项，请重新输入。")
+
+    def handle_extract_interactive(self):
+        valid_files = self._get_valid_qr_files()
+        if not valid_files: self.ui.display_message("未找到有效的 QuickReply JSON 文件。"); return
+        selected_file = self.ui.select_from_list(valid_files, "\n请选择要提取的JSON文件：")
+        if selected_file: self.run_extract(selected_file)
+
+    def handle_merge_interactive(self):
+        valid_folders = self._get_valid_folders()
+        if not valid_folders: self.ui.display_message("当前目录下没有包含 .txt 文件的文件夹。"); return
+        selected_folder = self.ui.select_from_list(valid_folders, "\n请选择要合并的文件夹：")
+        if selected_folder: self.run_merge(selected_folder)
+
+    def handle_push_interactive(self):
+        valid_files = self._get_valid_qr_files()
+        if not valid_files: self.ui.display_message("未找到有效的 QuickReply JSON 文件。"); return
+        selected_file = self.ui.select_from_list(valid_files, "\n请选择要更新的目标JSON文件：")
+        if not selected_file: return
+
+        valid_folders = self._get_valid_folders()
+        if not valid_folders: self.ui.display_message("当前目录下没有包含 .txt 文件的文件夹。"); return
+        selected_folder = self.ui.select_from_list(valid_folders, "\n请选择包含更新内容的源文件夹：")
+        if selected_folder: self.run_push(selected_file, selected_folder)
+
+    def _load_qr_data(self, file_path: Path) -> Optional[QuickReplyData]:
+        try:
+            return QuickReplyData.from_file(file_path, self.config)
+        except InvalidQuickReplyError as e:
+            self.ui.display_message(f"无法加载文件 {file_path.name}: {e}", is_error=True)
+            return None
+
+    def run_extract(self, file_path: Path):
+        qr_data = self._load_qr_data(file_path)
+        if qr_data:
+            result = self.service.extract(qr_data, self.base_dir)
+            self.ui.report_results(f"提取 '{file_path.name}'", result)
+
+    def run_merge(self, dir_path: Path):
+        output_name = f"QuickReply-{dir_path.name}.json"
+        output_path = self.base_dir / output_name
+        result = self.service.merge(dir_path, output_path)
+        self.ui.report_results(f"合并 '{dir_path.name}'", result)
+
+    def run_push(self, file_path: Path, dir_path: Path):
+        qr_data = self._load_qr_data(file_path)
+        if qr_data:
+            result = self.service.push(qr_data, dir_path)
+            self.ui.report_results(f"推送 '{dir_path.name}' -> '{file_path.name}'", result)
 
 def main():
-    """# 主函数，提供交互式菜单"""
-    while True:
-        print("\n# 请选择操作:")
-        print("1. 提取 (从 QuickReply JSON 提取到文件)")
-        print("2. 合并 (从文件合并到新的 QuickReply JSON)")
-        print("3. 推送 (从文件更新 QuickReply JSON)")
-        print("0. 退出")
+    parser = argparse.ArgumentParser(
+        description="一个用于提取、合并和更新 QuickReply JSON 的工具。",
+        epilog="如果没有提供任何命令，程序将进入交互模式。"
+    )
+    subparsers = parser.add_subparsers(dest="command", help="可用的命令")
 
-        choice = input("# 请输入选项 (0-3): ")
+    parser_extract = subparsers.add_parser("extract", help="从 QuickReply JSON 提取到文件")
+    parser_extract.add_argument("file", type=Path, help="要提取的 QuickReply JSON 文件路径")
 
-        if choice == "1":
-            select_json_file_and_extract()
-        elif choice == "2":
-            valid_folders = get_valid_folders()
-            if not valid_folders:
-                print("当前目录下没有包含 TXT 文件的文件夹。")
-                continue
+    parser_merge = subparsers.add_parser("merge", help="从文件合并到新的 QuickReply JSON")
+    parser_merge.add_argument("directory", type=Path, help="包含 .txt 文件的目录路径")
 
-            print("请选择一个文件夹进行合并：")
-            for i, folder in enumerate(valid_folders):
-                print(f"{i + 1}. {folder}")
+    parser_push = subparsers.add_parser("push", help="从文件更新 QuickReply JSON")
+    parser_push.add_argument("json_file", type=Path, help="要更新的 QuickReply JSON 文件路径")
+    parser_push.add_argument("directory", type=Path, help="包含更新内容的 .txt 文件目录路径")
 
-            while True:
-                try:
-                    choice = int(input(" 请输入文件夹编号 (输入0返回): "))
-                    if choice == 0:
-                        break
-                    if 1 <= choice <= len(valid_folders):
-                        directory = valid_folders[choice - 1]
-                        break
-                    else:
-                        print("无效的编号，请重新输入。")
-                except ValueError:
-                    print("无效的输入，请输入数字。")
+    args = parser.parse_args()
 
-            if choice == 0:
-                continue
+    config = Config()
+    service = QuickReplyService(config)
+    ui = AppUI()
+    app = Application(ui, service, config)
 
-            script_dir = os.path.dirname(os.path.abspath(__file__))
-            output_json_name = f"QuickReply-{os.path.basename(directory)}.json"
-            output_json_path = os.path.join(script_dir, output_json_name)
-            merge_to_json(directory, output_json_path)
-
-        elif choice == "3":
-            qr_json_files = get_quickreply_json_files()
-            if not qr_json_files:
-                print("未找到 QuickReply JSON 文件，请先使用提取操作。")
-                continue
-
-            for i, file in enumerate(qr_json_files):
-                print(f"{i + 1}. {file}")
-
-            while True:
-                try:
-                    choice = int(input(" 请选择要更新的 QuickReply JSON 文件的编号 (输入0退出): "))
-                    if choice == 0:
-                        break
-                    if 1 <= choice <= len(qr_json_files):
-                        selected_qr_json = qr_json_files[choice - 1]
-                        break
-                    else:
-                        print("无效的编号，请重新输入。")
-                except ValueError:
-                    print("无效的输入，请输入数字。")
-            if choice == 0:
-                continue
-
-            valid_folders = get_valid_folders()
-            if not valid_folders:
-                print("当前目录下没有包含TXT文件的文件夹")
-                continue
-
-            print("请选择一个文件夹来更新 QuickReply JSON：")
-            for i, folder in enumerate(valid_folders):
-                print(f"{i + 1}. {folder}")
-            while True:
-                try:
-                    choice_folder = int(input(" 请输入文件夹编号 (输入0返回): "))
-                    if choice_folder == 0:
-                        break
-                    if 1 <= choice_folder <= len(valid_folders):
-                        directory = valid_folders[choice_folder - 1]
-                        break
-                    else:
-                        print("无效的编号，请重新输入")
-                except ValueError:
-                    print("无效的输入，请输入数字。")
-
-            if choice_folder == 0:
-                continue
-
-            push_to_json(selected_qr_json, directory)
-
-        elif choice == "0":
-            print("退出程序。")
-            break
+    try:
+        if args.command == "extract":
+            app.run_extract(args.file.resolve())
+        elif args.command == "merge":
+            app.run_merge(args.directory.resolve())
+        elif args.command == "push":
+            app.run_push(args.json_file.resolve(), args.directory.resolve())
         else:
-            print("无效的选项，请重新输入。")
+            app.run_interactive()
+    except Exception as e:
+        ui.display_message(f"发生了一个意外错误: {e}", is_error=True)
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()
