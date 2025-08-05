@@ -12,8 +12,7 @@ import json
 
 CONFIG_YAML_CONTENT = """
 User_Cookie:
-  - "你的Cookie"
-
+  - "填入你自己的Cookie"
 Priority_Ups:
   - id: "476491780"
     name: "SechiAnimation"
@@ -376,7 +375,7 @@ class DailyTasksHandler:
         if thrown_count < ops_needed and not video_candidate_pool:
             print("\n所有配置的UP主均已检查完毕，未能完成所有目标投币。")
         print(f"\n本轮投币任务结束，共投出 {thrown_count} 枚硬币。")
-        return True
+        return thrown_count
 
 class MangaTaskHandler:
     def __init__(self, request_handler: BiliRequest, manga_config: dict):
@@ -427,50 +426,88 @@ class AutomatedTasksExecutor:
         self.user_handler = user_handler
         self.daily_tasks_handler = daily_tasks_handler
         self.manga_task_handler = manga_task_handler
+    def _get_videos_for_watch_share(self) -> list:
+        """Helper to get a list of videos for watch and share tasks."""
+        combined_up_list_raw = self.appoint_up_list + self.coin_task_settings.get('Priority_Ups', [])
+        up_pool_for_tasks = list({up['id']: up for up in combined_up_list_raw}.values())
+        if not up_pool_for_tasks:
+            print("无配置的UP主用于获取观看/分享视频。")
+            return []
+        
+        random_up = random.choice(up_pool_for_tasks)
+        videos_to_get = self.play_mode_settings.get('videos_per_up_play_mode', 1)
+        print(f"\n为观看/分享任务，从UP '{random_up.get('name', random_up.get('id'))}' 获取 {videos_to_get} 个视频...")
+        
+        videos = self.daily_tasks_handler.get_videos_from_up_list(
+            self.user_cookie, [random_up],
+            for_coin_task=False,
+            videos_per_up_target=videos_to_get
+        )
+        if not videos:
+            print("未能获取到用于观看/分享的视频。")
+        return videos
+
     def execute_tasks(self, current_user_data_dict: dict, initial_reward_status: dict) -> dict:
         reward_status_current = initial_reward_status.copy()
         is_lv6 = current_user_data_dict.get('is_lv6', True)
         user_coins = current_user_data_dict.get('coins', 0)
         print("\n--- 开始执行日常任务 (自动化模式) ---")
+
         if is_lv6:
             print("用户已满级LV6, 无需执行经验任务."); return reward_status_current
+        
+        def _update_login_status_if_needed():
+            if not reward_status_current.get('login', False):
+                reward_status_current['login'] = True
+                reward_status_current['total_exp_today'] = min(65, reward_status_current.get('total_exp_today', 0) + 5)
+                print("  (本地状态更新: 登录奖励 +5 Exp)")
+
         print("\n#漫画任务处理#")
-        if reward_status_current.get('total_exp_today', 0) < 65:
-            if self.manga_task_handler.manga_config.get("Enabled", False):
-                self.manga_task_handler.perform_clock_in(self.user_cookie)
-                self.manga_task_handler.perform_manga_read(self.user_cookie)
-                reward_status_current = self.user_handler.get_daily_reward_status(self.user_cookie)
-            else: print("漫画任务未在配置中启用。")
+        if self.manga_task_handler.manga_config.get("Enabled", False):
+            self.manga_task_handler.perform_clock_in(self.user_cookie)
+            self.manga_task_handler.perform_manga_read(self.user_cookie)
         else:
-            print("每日总经验已达上限(65), 跳过漫画任务.")
+            print("漫画任务未在配置中启用。")
+
         if reward_status_current.get('total_exp_today', 0) >= 65:
-            print("每日总经验已达上限(65)，后续视频经验任务将不再执行。")
+            print("\n每日总经验已达上限(65)，后续视频经验任务将不再执行。")
         else:
             videos_for_watch_share = []
             if not reward_status_current.get('watch', False) or not reward_status_current.get('share', False):
-                combined_up_list_raw = self.appoint_up_list + self.coin_task_settings.get('Priority_Ups', [])
-                up_pool_for_tasks = list({up['id']: up for up in combined_up_list_raw}.values())
-                if up_pool_for_tasks:
-                    random_up_for_tasks = random.choice(up_pool_for_tasks)
-                    videos_to_get = self.play_mode_settings.get('videos_per_up_play_mode', 1)
-                    print(f"\n为观看/分享任务，从UP '{random_up_for_tasks.get('name', random_up_for_tasks.get('id'))}' 获取 {videos_to_get} 个视频...")
-                    videos_for_watch_share = self.daily_tasks_handler.get_videos_from_up_list(self.user_cookie, [random_up_for_tasks], for_coin_task=False, videos_per_up_target=videos_to_get)
-                    if not videos_for_watch_share: print("未能获取到用于观看/分享的视频。")
-                else: print("无配置的UP主用于获取观看/分享视频。")
+                videos_for_watch_share = self._get_videos_for_watch_share()
+
             if not reward_status_current.get('watch', False):
-                if videos_for_watch_share:
+                print("\n#观看视频任务#")
+                if not videos_for_watch_share:
+                    print("无视频可观看，跳过。")
+                else:
                     min_w, max_w = self.watch_task_settings.get('Wait_Time_Min', 3), self.watch_task_settings.get('Wait_Time_Max', 28)
                     if self.daily_tasks_handler.watch_video(self.user_cookie, videos_for_watch_share, min_w, max_w):
-                        reward_status_current = self.user_handler.get_daily_reward_status(self.user_cookie)
-                else: print("\n#观看视频任务#\n无视频可观看，跳过。")
+                        reward_status_current['watch'] = True
+                        reward_status_current['total_exp_today'] = min(65, reward_status_current.get('total_exp_today', 0) + 5)
+                        _update_login_status_if_needed()
+            
             if reward_status_current.get('total_exp_today', 0) < 65 and not reward_status_current.get('share', False):
-                if videos_for_watch_share:
+                print("\n#视频分享任务#")
+                if not videos_for_watch_share:
+                    print("无视频可分享，跳过。")
+                else:
                     if self.daily_tasks_handler.share_video(self.user_cookie, videos_for_watch_share):
-                        reward_status_current = self.user_handler.get_daily_reward_status(self.user_cookie)
-                else: print("\n#视频分享任务#\n无视频可分享，跳过。")
-            if reward_status_current.get('total_exp_today', 0) < 65 and reward_status_current.get('coins_exp', 0) < 50 :
-                self.daily_tasks_handler.coin_videos(self.user_cookie, self.appoint_up_list, user_coins, reward_status_current.get('coins_exp', 0), self.coin_task_settings)
-                reward_status_current = self.user_handler.get_daily_reward_status(self.user_cookie)
+                        reward_status_current['share'] = True
+                        reward_status_current['total_exp_today'] = min(65, reward_status_current.get('total_exp_today', 0) + 5)
+                        _update_login_status_if_needed()
+
+            if reward_status_current.get('total_exp_today', 0) < 65 and reward_status_current.get('coins_exp', 0) < 50:
+                thrown_count = self.daily_tasks_handler.coin_videos(self.user_cookie, self.appoint_up_list, user_coins, reward_status_current.get('coins_exp', 0), self.coin_task_settings)
+                if thrown_count > 0:
+                    _update_login_status_if_needed()
+                    exp_gained = thrown_count * 10
+                    current_coin_exp = reward_status_current.get('coins_exp', 0)
+                    actual_exp_gain = min(exp_gained, 50 - current_coin_exp)
+                    if actual_exp_gain > 0:
+                        reward_status_current['coins_exp'] += actual_exp_gain
+                        reward_status_current['total_exp_today'] = min(65, reward_status_current.get('total_exp_today', 0) + actual_exp_gain)
+
         print("\n--- 所有日常任务尝试完毕 (自动化模式) ---")
         return self.user_handler.get_daily_reward_status(self.user_cookie)
 
