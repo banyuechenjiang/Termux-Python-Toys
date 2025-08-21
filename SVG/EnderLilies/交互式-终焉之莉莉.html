@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>纹章设计 - 物理遮罩填充 (最终版)</title>
+    <style>
+        :root {
+            --emblem-unfilled-color: #FFFFFF; /* 纹章未填充部分的颜色 (白色) */
+            --fill-color: #4dabf7;             /* 填充物的颜色 (蓝色) */
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background-color: #1c1c1e;
+            color: #e0e0e0;
+            margin: 0;
+            padding: 2em;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            box-sizing: border-box;
+        }
+        .主容器 { width: 95%; max-width: 1200px; display: flex; flex-wrap: wrap; justify-content: center; gap: 2.5em; }
+        .设计卡片 { background-color: #2c2c2e; border-radius: 20px; box-shadow: 0 15px 45px rgba(0, 0, 0, 0.4); width: 100%; max-width: 540px; padding: 2.5em; border: 1px solid rgba(255, 255, 255, 0.1); display: flex; flex-direction: column; }
+        h1 { text-align: center; color: #ffffff; margin-top: 0; margin-bottom: 1.5em; font-size: 2.2em; font-weight: 600; }
+        .svg预览区 { background: linear-gradient(145deg, #222222, #1a1a1a); padding: 20px; border-radius: 10px; height: auto; aspect-ratio: 1 / 1; display: flex; justify-content: center; align-items: center; box-shadow: inset 0 4px 15px rgba(0, 0, 0, 0.5); margin-bottom: 1.5em; }
+        .svg预览区 svg { width: 100%; height: 100%; }
+        .控制区 { display: flex; align-items: center; gap: 1em; }
+        .控制区 label { font-size: 0.9em; color: #a0a0a5; }
+        .控制区 input[type="range"] { flex-grow: 1; -webkit-appearance: none; appearance: none; height: 8px; background: #444; border-radius: 5px; outline: none; cursor: pointer; }
+        .控制区 input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 20px; height: 20px; background: var(--fill-color); border-radius: 50%; border: 3px solid #2c2c2e; transition: transform 0.1s; }
+        .控制区 input[type="range"]::-moz-range-thumb { width: 16px; height: 16px; background: var(--fill-color); border-radius: 50%; border: 3px solid #2c2c2e; }
+        .控制区 input[type="range"]:active::-webkit-slider-thumb { transform: scale(1.2); }
+        .控制区 .percentage-display { font-weight: 600; color: #fff; min-width: 45px; text-align: right; }
+    </style>
+</head>
+<body>
+
+    <div class="主容器">
+        <!-- 白纹章 -->
+        <div class="设计卡片">
+            <h1>白纹章</h1>
+            <div class="svg预览区">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200">
+                    <title>白纹章</title>
+                    <defs>
+                        <!-- 步骤1: 定义完整的纹章形状，这将作为我们的“模板” -->
+                        <g id="shape-white-emblem">
+                            <path fill-rule="evenodd" d="M 100,2 L 112,22 L 106,30 L 106,50 A 45 45 0 0 0 150,94 L 170,94 L 178,88 L 198,100 L 178,112 L 170,106 L 150,106 A 45 45 0 0 0 106,150 L 106,170 L 112,178 L 100,198 L 88,178 L 94,170 L 94,150 A 45 45 0 0 0 50,106 L 30,106 L 22,112 L 2,100 L 22,88 L 30,94 L 50,94 A 45 45 0 0 0 94,50 L 94,30 L 88,22 Z M 100,80 A 30 30 0 0 0 120,100 A 30 30 0 0 0 100,120 A 30 30 0 0 0 80,100 A 30 30 0 0 0 100,80 Z"/>
+                            <path d="M 151.2,86.27 A 53 53 0 0 0 113.73,48.8 L 111.66,56.53 A 45 45 0 0 1 143.47,88.35 Z" />
+                            <use href="#final-ring-segment-B" transform="rotate(90, 100, 100)" /> <use href="#final-ring-segment-B" transform="rotate(180, 100, 100)" /> <use href="#final-ring-segment-B" transform="rotate(270, 100, 100)" />
+                            <path id="final-ring-segment-B" d="M 151.2,86.27 A 53 53 0 0 0 113.73,48.8 L 111.66,56.53 A 45 45 0 0 1 143.47,88.35 Z"/>
+                            <path d="M 100,35 L 107.5,44.2 L 104,50.1 L 104,70 C 104,75 110,80 110,80 L 90,80 C 90,80 96,75 96,70 L 96,50.1 L 92.5,44.2 Z" transform="rotate(45, 100, 100)"/>
+                            <use href="#small-cross-B" transform="rotate(90, 100, 100)" /> <use href="#small-cross-B" transform="rotate(180, 100, 100)" /> <use href="#small-cross-B" transform="rotate(270, 100, 100)" />
+                            <path id="small-cross-B" d="M 100,35 L 107.5,44.2 L 104,50.1 L 104,70 C 104,75 110,80 110,80 L 90,80 C 90,80 96,75 96,70 L 96,50.1 L 92.5,44.2 Z" transform="rotate(45, 100, 100)"/>
+                        </g>
+                        <!-- 步骤2: 创建一个遮罩，内容就是上面的模板 -->
+                        <mask id="mask-white-emblem">
+                           <use href="#shape-white-emblem" fill="white" />
+                        </mask>
+                    </defs>
+                    <!-- 步骤3: 应用遮罩 -->
+                    <g mask="url(#mask-white-emblem)">
+                        <!-- 底层：一个铺满画布的白色矩形 (未填充部分) -->
+                        <rect x="0" y="0" width="200" height="200" fill="var(--emblem-unfilled-color)" />
+                        <!-- 上层：一个蓝色的矩形，我们将用JS控制它的y和height属性 (填充部分) -->
+                        <rect class="fill-rect" x="0" y="200" width="200" height="0" fill="var(--fill-color)" />
+                    </g>
+                </svg>
+            </div>
+            <div class="控制区">
+                <label>填充:</label>
+                <input type="range" class="fill-slider" min="0" max="100" value="0" step="1">
+                <span class="percentage-display">0%</span>
+            </div>
+        </div>
+
+        <!-- 不死纹章 -->
+        <div class="设计卡片">
+            <h1>不死纹章</h1>
+            <div class="svg预览区">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400">
+                    <title>不死纹章</title>
+                    <defs>
+                        <g id="shape-undead-emblem">
+                           <path d="M 200 0 A 200 200 0 0 0 400 200 A 200 200 0 0 0 200 400 A 200 200 0 0 0 0 200 A 200 200 0 0 0 200 0 Z" mask="url(#hollow-mask)" />
+                           <use href="#satellite-star" transform="translate(100 100) rotate(45)" />
+                           <use href="#satellite-star" transform="translate(300 100) rotate(45)" />
+                           <use href="#satellite-star" transform="translate(100 300) rotate(45)" />
+                           <use href="#satellite-star" transform="translate(300 300) rotate(45)" />
+                        </g>
+                        <mask id="mask-undead-emblem">
+                            <use href="#shape-undead-emblem" fill="white" />
+                        </mask>
+                        <!-- 原有的定义保持不变 -->
+                        <path id="hollow-shape" d="M 200 120 A 200 200 0 0 0 280 200 A 200 200 0 0 0 200 280 A 200 200 0 0 0 120 200 A 200 200 0 0 0 200 120 Z" />
+                        <path id="satellite-star" d="M 0,-50 L 8,-8 L 50,0 L 8,8 L 0,50 L -8,8 L -50,0 L -8,-8 Z" />
+                        <mask id="hollow-mask">
+                            <rect x="0" y="0" width="400" height="400" fill="white" />
+                            <use href="#hollow-shape" fill="black" />
+                        </mask>
+                    </defs>
+                    <g mask="url(#mask-undead-emblem)">
+                        <rect x="0" y="0" width="400" height="400" fill="var(--emblem-unfilled-color)" />
+                        <rect class="fill-rect" x="0" y="400" width="400" height="0" fill="var(--fill-color)" />
+                    </g>
+                </svg>
+            </div>
+             <div class="控制区">
+                <label>填充:</label>
+                <input type="range" class="fill-slider" min="0" max="100" value="0" step="1">
+                <span class="percentage-display">0%</span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            document.querySelectorAll('.设计卡片').forEach(card => {
+                const slider = card.querySelector('.fill-slider');
+                const percentageDisplay = card.querySelector('.percentage-display');
+                const fillRect = card.querySelector('.fill-rect');
+                const svgElement = card.querySelector('svg');
+                
+                // 动态获取SVG的viewBox高度，使代码更通用
+                const viewBoxHeight = svgElement.viewBox.baseVal.height;
+
+                const updateFill = (value) => {
+                    const percentage = parseInt(value, 10);
+                    
+                    // --- 核心物理模拟逻辑 ---
+                    // 计算填充矩形的高度
+                    const fillHeight = viewBoxHeight * (percentage / 100);
+                    // 计算填充矩形的Y坐标 (从底部开始)
+                    const yPosition = viewBoxHeight - fillHeight;
+
+                    // 设置蓝色矩形的y和height属性
+                    fillRect.setAttribute('y', yPosition);
+                    fillRect.setAttribute('height', fillHeight);
+
+                    percentageDisplay.textContent = `${percentage}%`;
+                };
+
+                slider.addEventListener('input', (event) => {
+                    updateFill(event.target.value);
+                });
+
+                // 初始化
+                updateFill(slider.value);
+            });
+        });
+    </script>
+
+</body>
+</html>
