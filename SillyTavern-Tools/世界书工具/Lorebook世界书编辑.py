@@ -5,70 +5,46 @@ from tkinter import ttk, filedialog, messagebox, scrolledtext
 from tkinter import font
 from typing import Optional, List, Dict
 import re
+import sys
 
 
 class WorldBookManager:
     """世界书数据管理类."""
+    # 内部英文位置映射
+    POSITION_MAP_ENGLISH = {
+        "Before Char Defs": 0, "After Char Defs": 1, "Before Example Messages": 2,
+        "After Example Messages": 3, "Top of AN": 4, "Bottom of AN": 5, "@ D": 6,
+        "⚙️ - as a system role message": 7, "👤 - as a user role message": 8,
+        "🤖 - as an assistant role message": 9
+    }
+    # 中文显示位置映射
+    POSITION_MAP_CHINESE = {
+        "角色定义前": "Before Char Defs", "角色定义后": "After Char Defs",
+        "示例消息前": "Before Example Messages", "示例消息后": "After Example Messages",
+        "作者注释 顶部": "Top of AN", "作者注释 底部": "Bottom of AN", "@ D": "@ D",
+        "⚙️ - 系统角色消息": "⚙️ - as a system role message",
+        "👤 - 用户角色消息": "👤 - as a user role message",
+        "🤖 - 助手角色消息": "🤖 - as an assistant role message"
+    }
+    # 角色映射
+    ROLE_MAP = {"User": 0, "System": 1, "Assistant": 2}
+    # 常驻类型映射
+    STICKY_MAP = {"否": 0, "是": 1, "直到上下文满": 2}
+    # 选择逻辑映射
+    SELECTIVE_LOGIC_MAP = {
+        "AND ANY": 0, "AND ALL": 1, "NOT ANY": 2, "NOT ALL": 3,
+        "与任意关键词匹配": "AND ANY", "与所有关键词匹配": "AND ALL",
+        "不含任意关键词": "NOT ANY", "不含所有关键词": "NOT ALL"
+    }
 
     def __init__(self):
         """初始化 WorldBookManager."""
         self.worldbook_data = None
         self.current_file_path = None
 
-        # 内部英文位置映射
-        self.position_map_english = {
-            "Before Char Defs": 0,
-            "After Char Defs": 1,
-            "Before Example Messages": 2,
-            "After Example Messages": 3,
-            "Top of AN": 4,
-            "Bottom of AN": 5,
-            "@ D": 6,
-            "⚙️ - as a system role message": 7,
-            "👤 - as a user role message": 8,
-            "🤖 - as an assistant role message": 9,
-        }
-        # 中文显示位置映射
-        self.position_map_chinese = {
-            "角色定义前": "Before Char Defs",
-            "角色定义后": "After Char Defs",
-            "示例消息前": "Before Example Messages",
-            "示例消息后": "After Example Messages",
-            "作者注释 顶部": "Top of AN",
-            "作者注释 底部": "Bottom of AN",
-            "@ D": "@ D",
-            "⚙️ - 系统角色消息": "⚙️ - as a system role message",
-            "👤 - 用户角色消息": "👤 - as a user role message",
-            "🤖 - 助手角色消息": "🤖 - as an assistant role message",
-        }
-        # 角色映射
-        self.role_map = {
-            "User": 0,
-            "System": 1,
-            "Assistant": 2,
-        }
-        # 常驻类型映射
-        self.sticky_map = {
-            "否": 0,
-            "是": 1,
-            "直到上下文满": 2,
-        }
-        # 选择逻辑映射
-        self.selective_logic_map = {
-            "AND ANY": 0,
-            "AND ALL": 1,
-            "NOT ANY": 2,
-            "NOT ALL": 3,
-            "与任意关键词匹配": "AND ANY",
-            "与所有关键词匹配": "AND ALL",
-            "不含任意关键词": "NOT ANY",
-            "不含所有关键词": "NOT ALL",
-        }
-
-        self.position_options = list(self.position_map_chinese.keys())
-        self.role_options = list(self.role_map.keys())
-        self.sticky_options = list(self.sticky_map.keys())
-        self.selective_logic_options = list(self.selective_logic_map.keys())
+        self.position_options = list(self.POSITION_MAP_CHINESE.keys())
+        self.role_options = list(self.ROLE_MAP.keys())
+        self.sticky_options = list(self.STICKY_MAP.keys())
         self.selective_logic_options_chinese = ["与任意关键词匹配", "与所有关键词匹配", "不含任意关键词", "不含所有关键词"]
 
     def load_worldbook(self, file_path: str) -> bool:
@@ -155,14 +131,14 @@ class WorldBookManager:
             merged_entry = default_entry.copy()
             merged_entry.update(info)
             for key, value in info.items():
-                if key == "position" and value in self.position_map_english:
-                    merged_entry[key] = self.position_map_english[value]
-                elif key == "role" and value in self.role_map:
-                    merged_entry[key] = self.role_map[value]
-                elif key == "sticky" and value in self.sticky_map:
-                    merged_entry[key] = self.sticky_map[value]
-                elif key == "selectiveLogic" and value in self.selective_logic_map:
-                    merged_entry[key] = self.selective_logic_map[value]
+                if key == "position" and value in self.POSITION_MAP_ENGLISH:
+                    merged_entry[key] = self.POSITION_MAP_ENGLISH[value]
+                elif key == "role" and value in self.ROLE_MAP:
+                    merged_entry[key] = self.ROLE_MAP[value]
+                elif key == "sticky" and value in self.STICKY_MAP:
+                    merged_entry[key] = self.STICKY_MAP[value]
+                elif key == "selectiveLogic" and value in self.SELECTIVE_LOGIC_MAP:
+                    merged_entry[key] = self.SELECTIVE_LOGIC_MAP[value]
             return merged_entry
         return default_entry
 
@@ -176,14 +152,14 @@ class WorldBookManager:
             if entry["uid"] == uid:
                 entry.update(updated_info)
                 for key, value in updated_info.items():
-                    if key == "position" and value in self.position_map_english:
-                        entry[key] = self.position_map_english[value]
-                    elif key == "role" and value in self.role_map:
-                        entry[key] = self.role_map[value]
-                    elif key == "sticky" and value in self.sticky_map:
-                        entry[key] = self.sticky_map[value]
-                    elif key == "selectiveLogic" and value in self.selective_logic_map:
-                        entry[key] = self.selective_logic_map[value]
+                    if key == "position" and value in self.POSITION_MAP_ENGLISH:
+                        entry[key] = self.POSITION_MAP_ENGLISH[value]
+                    elif key == "role" and value in self.ROLE_MAP:
+                        entry[key] = self.ROLE_MAP[value]
+                    elif key == "sticky" and value in self.STICKY_MAP:
+                        entry[key] = self.STICKY_MAP[value]
+                    elif key == "selectiveLogic" and value in self.SELECTIVE_LOGIC_MAP:
+                        entry[key] = self.SELECTIVE_LOGIC_MAP[value]
                 return True
         messagebox.showerror("错误", f"未找到 UID 为 {uid} 的条目")
         return False
@@ -263,12 +239,10 @@ class WorldBookUI:
         self.world_book_manager = world_book_manager
         self.root = root
         self.root.title("SillyTavern 世界书编辑器") # 标题明确为世界书编辑器 (Lorebook Editor)
-        self.root.geometry("1400x750")
+        self.root.geometry("1200x700")#窗口大小
 
         self.style = ttk.Style()
         self.setup_styles()
-
-        self.use_advanced_mode = tk.BooleanVar(value=False)
 
         self.button_frame = ttk.Frame(self.root)
         self.edit_frame = ttk.Frame(self.root)
@@ -279,7 +253,7 @@ class WorldBookUI:
         self.bool_vars = {}
 
         self.create_widgets()
-        self.switch_edit_mode()
+        self.create_edit_fields()
         self.update_entry_list()
         self.entry_listbox.bind("<<ListboxSelect>>", self.on_entry_select)
 
@@ -295,19 +269,14 @@ class WorldBookUI:
 
     def create_widgets(self):
         """Creates and arranges UI widgets."""
-        menubar = tk.Menu(self.root)
-        self.root.config(menu=menubar)
+        top_frame = ttk.Frame(self.root)
+        top_frame.pack(side=tk.TOP, fill=tk.X, padx=10, pady=5)
 
-        file_menu = tk.Menu(menubar, tearoff=0)
-        menubar.add_cascade(label="文件", menu=file_menu)
-        file_menu.add_command(label="加载 Lorebook", command=self.load_worldbook) # 菜单项使用 Lorebook
-        file_menu.add_command(label="保存 Lorebook", command=self.save_worldbook) # 菜单项使用 Lorebook
-        file_menu.add_separator()
-        file_menu.add_command(label="退出", command=self.root.quit)
+        load_button = ttk.Button(top_frame, text="加载 Lorebook", command=self.load_worldbook)
+        load_button.pack(side=tk.LEFT, padx=5)
 
-        help_menu = tk.Menu(menubar, tearoff=0)
-        menubar.add_cascade(label="帮助", menu=help_menu)
-        help_menu.add_command(label="使用说明", command=self.show_instructions_gui)
+        save_button = ttk.Button(top_frame, text="保存 Lorebook", command=self.save_worldbook)
+        save_button.pack(side=tk.LEFT, padx=5)
 
         ttk.Label(self.root, text="SillyTavern 世界书编辑器 (Lorebook Editor)", # 标题明确为世界书编辑器 (Lorebook Editor)
                   style="Header.TLabel").pack(pady=10)
@@ -328,9 +297,6 @@ class WorldBookUI:
         self.edit_frame.pack(side=tk.RIGHT, padx=10,
                              pady=10, fill=tk.BOTH, expand=True)
 
-        self.mode_check = ttk.Checkbutton(self.edit_frame, text="高级模式", variable=self.use_advanced_mode,
-                                          command=self.switch_edit_mode)
-        self.mode_check.pack(pady=5)
 
         self.notebook.pack(fill=tk.BOTH, expand=True)
 
@@ -351,18 +317,6 @@ class WorldBookUI:
         )
         self.new_button.pack(side=tk.LEFT, padx=5)
 
-    def switch_edit_mode(self):
-        """切换简易/高级编辑模式."""
-        self.create_edit_fields()
-        selected_index = self.entry_listbox.curselection()
-        if selected_index:
-            selected_text = self.entry_listbox.get(selected_index[0])
-            uid_match = re.search(r'(\d+) -', selected_text)
-            if uid_match:
-                uid = int(uid_match.group(1))
-                entry = self.world_book_manager.get_entry_by_uid(uid)
-                if entry:
-                    self.populate_edit_fields(entry)
 
     def create_edit_fields(self):
         """根据编辑模式创建不同的编辑字段."""
@@ -375,178 +329,135 @@ class WorldBookUI:
         numerical_bool_tab = ttk.Frame(self.notebook)
 
         self.notebook.add(basic_tab, text="基本信息")
-        if self.use_advanced_mode.get():
-            self.notebook.add(advanced_tab, text="高级选项")
-            self.notebook.add(recursion_group_tab, text="递归 & 分组")
-            self.notebook.add(numerical_bool_tab, text="数值 & 布尔")
+        self.notebook.add(advanced_tab, text="高级选项")
+        self.notebook.add(recursion_group_tab, text="递归 & 分组")
+        self.notebook.add(numerical_bool_tab, text="数值 & 布尔")
 
-        basic_tab.grid_columnconfigure(1, weight=1)
-        basic_tab.grid_rowconfigure(4, weight=1)
+        self._create_basic_tab(basic_tab)
+        self._create_advanced_tab(advanced_tab)
+        self._create_recursion_group_tab(recursion_group_tab)
+        self._create_numerical_bool_tab(numerical_bool_tab)
 
-        row = 0
-        col = 0
-        columnwidth = 12
+    def _create_basic_tab(self, parent_tab):
+        parent_tab.grid_columnconfigure(1, weight=1)
+        parent_tab.grid_rowconfigure(4, weight=1)
+        row, col, colwidth = 0, 0, 12
 
-        ttk.Label(basic_tab, text="关键词:", width=columnwidth).grid(row=row, column=col, sticky=tk.W, padx=5, pady=2)
-        self.key_entry = ttk.Entry(basic_tab, width=20)
+        ttk.Label(parent_tab, text="关键词:", width=colwidth).grid(row=row, column=col, sticky=tk.W, padx=5, pady=2)
+        self.key_entry = ttk.Entry(parent_tab, width=20)
         self.key_entry.grid(row=row, column=col + 1, sticky=tk.EW, padx=5, pady=2)
         row += 1
 
-        ttk.Label(basic_tab, text="次要关键词:", width=columnwidth).grid(row=row, column=col, sticky=tk.W, padx=5, pady=2)
-        self.keysecondary_entry = ttk.Entry(basic_tab, width=20)
+        ttk.Label(parent_tab, text="次要关键词:", width=colwidth).grid(row=row, column=col, sticky=tk.W, padx=5, pady=2)
+        self.keysecondary_entry = ttk.Entry(parent_tab, width=20)
         self.keysecondary_entry.grid(row=row, column=col + 1, sticky=tk.EW, padx=5, pady=2)
         row += 1
 
-        ttk.Label(basic_tab, text="注释 (Comment):", width=columnwidth).grid(row=row, column=col, sticky=tk.W, padx=5, pady=2) #  注释label 更加明确
-        self.comment_entry = ttk.Entry(basic_tab, width=20)
+        ttk.Label(parent_tab, text="注释 (Comment):", width=colwidth).grid(row=row, column=col, sticky=tk.W, padx=5, pady=2)
+        self.comment_entry = ttk.Entry(parent_tab, width=20)
         self.comment_entry.grid(row=row, column=col + 1, sticky=tk.EW, padx=5, pady=2)
         row += 1
 
-        ttk.Label(basic_tab, text="条目内容 (Content):", width=columnwidth).grid(row=row, column=col, sticky=tk.NW, padx=5, pady=2) # 条目内容label 更加明确
-        self.content_text = scrolledtext.ScrolledText(basic_tab, wrap=tk.WORD, height=12, width=30)
+        ttk.Label(parent_tab, text="条目内容 (Content):", width=colwidth).grid(row=row, column=col, sticky=tk.NW, padx=5, pady=2)
+        self.content_text = scrolledtext.ScrolledText(parent_tab, wrap=tk.WORD, height=12, width=30)
         self.content_text.grid(row=row, column=col + 1, sticky=tk.NSEW, padx=5, pady=2)
         row += 1
 
-        ttk.Label(basic_tab, text="插入位置:", width=columnwidth).grid(row=row, column=col, sticky=tk.W, padx=5, pady=2)
-        self.position_combo = ttk.Combobox(basic_tab, values=self.world_book_manager.position_options, width=18)
+        ttk.Label(parent_tab, text="插入位置:", width=colwidth).grid(row=row, column=col, sticky=tk.W, padx=5, pady=2)
+        self.position_combo = ttk.Combobox(parent_tab, values=self.world_book_manager.position_options, width=18)
         self.position_combo.grid(row=row, column=col + 1, sticky=tk.EW, padx=5, pady=2)
+
+    def _create_advanced_tab(self, parent_tab):
+        row, col, colwidth = 0, 0, 12
+
+        self.constant_var = tk.BooleanVar()
+        ttk.Checkbutton(parent_tab, variable=self.constant_var, text="设为常驻条目").grid(row=row, column=col, columnspan=2, sticky=tk.W, padx=5, pady=2)
         row += 1
 
-        if self.use_advanced_mode.get():
-            row = 0
-            col = 0
+        self.disable_var = tk.BooleanVar()
+        ttk.Checkbutton(parent_tab, variable=self.disable_var, text="禁用此条目").grid(row=row, column=col, columnspan=2, sticky=tk.W, padx=5, pady=2)
+        row += 1
 
-            ttk.Label(advanced_tab, text="设为常驻条目:", width=columnwidth).grid(row=row, column=col, sticky=tk.W, padx=5, pady=2)
-            self.constant_var = tk.BooleanVar()
-            self.constant_check = ttk.Checkbutton(advanced_tab, variable=self.constant_var, text="常驻")
-            self.constant_check.grid(row=row, column=col + 1, sticky=tk.W, padx=5, pady=2)
+        ttk.Label(parent_tab, text="角色消息类型:", width=colwidth).grid(row=row, column=col, sticky=tk.W, padx=5, pady=2)
+        self.role_combo = ttk.Combobox(parent_tab, values=self.world_book_manager.role_options, width=18)
+        self.role_combo.grid(row=row, column=col + 1, sticky=tk.EW, padx=5, pady=2)
+        row += 1
+
+        ttk.Label(parent_tab, text="粘性行为:", width=colwidth).grid(row=row, column=col, sticky=tk.W, padx=5, pady=2)
+        self.sticky_combo = ttk.Combobox(parent_tab, values=self.world_book_manager.sticky_options, width=18)
+        self.sticky_combo.grid(row=row, column=col + 1, sticky=tk.EW, padx=5, pady=2)
+        row += 1
+
+        ttk.Label(parent_tab, text="选择逻辑规则:", width=colwidth).grid(row=row, column=col, sticky=tk.W, padx=5, pady=2)
+        self.selective_logic_combo = ttk.Combobox(parent_tab, values=self.world_book_manager.selective_logic_options_chinese, width=18)
+        self.selective_logic_combo.grid(row=row, column=col + 1, sticky=tk.EW, padx=5, pady=2)
+
+    def _create_recursion_group_tab(self, parent_tab):
+        row, col, colwidth = 0, 0, 12
+
+        recursion_props = ["excludeRecursion", "preventRecursion", "delayUntilRecursion"]
+        self.recursion_vars = {}
+        recursion_chinese_names = {
+            "excludeRecursion": "本条目不被递归触发",
+            "preventRecursion": "阻止条目内容触发递归",
+            "delayUntilRecursion": "延迟到递归"
+        }
+        for prop in recursion_props:
+            self.recursion_vars[prop] = tk.BooleanVar()
+            check = ttk.Checkbutton(parent_tab, variable=self.recursion_vars[prop], text=recursion_chinese_names[prop])
+            check.grid(row=row, column=col, columnspan=2, sticky=tk.W, padx=5, pady=2)
             row += 1
 
-            ttk.Label(advanced_tab, text="禁用此条目:", width=columnwidth).grid(row=row, column=col, sticky=tk.W, padx=5, pady=2)
-            self.disable_var = tk.BooleanVar()
-            self.disable_check = ttk.Checkbutton(advanced_tab, variable=self.disable_var, text="禁用")
-            self.disable_check.grid(row=row, column=col + 1, sticky=tk.W, padx=5, pady=2)
+        str_props = {"group": "分组", "automationId": "自动化 ID"}
+        self.str_entries = {}
+        for prop, name in str_props.items():
+            ttk.Label(parent_tab, text=f"{name}:", width=colwidth).grid(row=row, column=col, sticky=tk.W, padx=5, pady=2)
+            self.str_entries[prop] = ttk.Entry(parent_tab, width=20)
+            self.str_entries[prop].grid(row=row, column=col + 1, sticky=tk.EW, padx=5, pady=2)
             row += 1
 
-            ttk.Label(advanced_tab, text="角色消息类型:", width=columnwidth).grid(row=row, column=col, sticky=tk.W, padx=5, pady=2)
-            self.role_combo = ttk.Combobox(advanced_tab, values=self.world_book_manager.role_options, width=18)
-            self.role_combo.grid(row=row, column=col + 1, sticky=tk.EW, padx=5, pady=2)
-            row += 1
+    def _create_numerical_bool_tab(self, parent_tab):
+        bool_props = {
+            "vectorized": "向量化", "selective": "选择性", "addMemo": "添加备注",
+            "groupOverride": "分组覆盖", "useProbability": "使用概率", "caseSensitive": "区分大小写",
+            "matchWholeWords": "匹配整个单词", "useGroupScoring": "使用分组评分"
+        }
+        self.bool_vars = {}
+        row = self._create_grid_of_widgets(parent_tab, bool_props, self.bool_vars, "bool", 0)
 
-            ttk.Label(advanced_tab, text="粘性行为:", width=columnwidth).grid(row=row, column=col, sticky=tk.W, padx=5, pady=2)
-            self.sticky_combo = ttk.Combobox(advanced_tab, values=self.world_book_manager.sticky_options, width=18)
-            self.sticky_combo.grid(row=row, column=col + 1, sticky=tk.EW, padx=5, pady=2)
-            row += 1
+        int_props = {
+            "order": "插入顺序", "probability": "概率", "groupWeight": "分组权重",
+            "cooldown": "冷却时间", "delay": "延迟", "depth": "深度", "scanDepth": "扫描深度"
+        }
+        self.int_entries = {}
+        self._create_grid_of_widgets(parent_tab, int_props, self.int_entries, "int", row)
 
-            ttk.Label(advanced_tab, text="选择逻辑规则:", width=columnwidth).grid(row=row, column=col, sticky=tk.W, padx=5, pady=2)
-            self.selective_logic_combo = ttk.Combobox(advanced_tab,
-                                                      values=self.world_book_manager.selective_logic_options_chinese,
-                                                      width=18)
-            self.selective_logic_combo.grid(row=row, column=col + 1, sticky=tk.EW, padx=5, pady=2)
-            row += 1
+    def _create_grid_of_widgets(self, parent, props, storage, widget_type, start_row):
+        row, col, colwidth = start_row, 0, 12
+        col_count = 0
+        for prop, name in props.items():
+            if widget_type == "bool":
+                storage[prop] = tk.BooleanVar()
+                widget = ttk.Checkbutton(parent, variable=storage[prop], text=name)
+                widget.grid(row=row, column=col, columnspan=2, sticky=tk.W, padx=5, pady=2)
+            elif widget_type == "int":
+                ttk.Label(parent, text=f"{name}:", width=colwidth).grid(row=row, column=col, sticky=tk.W, padx=5, pady=2)
+                storage[prop] = ttk.Entry(parent, width=20)
+                storage[prop].grid(row=row, column=col + 1, sticky=tk.EW, padx=5, pady=2)
 
-            row = 0
-            col = 0
-
-            recursion_props = ["excludeRecursion", "preventRecursion", "delayUntilRecursion"]
-            self.recursion_vars = {}
-            recursion_chinese_names = {
-                "excludeRecursion": "本条目不被递归触发", #  更准确的中文翻译
-                "preventRecursion": "阻止条目内容触发递归", #  更准确的中文翻译
-                "delayUntilRecursion": "延迟到递归"
-            }
-            for prop in recursion_props:
-                ttk.Label(recursion_group_tab,
-                          text=f"{recursion_chinese_names[prop]}:", # 应用更准确的翻译
-                          width=columnwidth).grid(row=row, column=col, sticky=tk.W, padx=5, pady=2)
-                self.recursion_vars[prop] = tk.BooleanVar()
-                check = ttk.Checkbutton(recursion_group_tab, variable=self.recursion_vars[prop],
-                                        text=recursion_chinese_names[prop])
-                check.grid(row=row, column=col + 1, sticky=tk.W, padx=5, pady=2)
+            col_count += 1
+            if col_count % 2 == 0:
                 row += 1
-
-            str_props = ["group", "automationId"]
-            self.str_entries = {}
-            str_chinese_names = {
-                "group": "分组",
-                "automationId": "自动化 ID"
-            }
-            for prop in str_props:
-                ttk.Label(recursion_group_tab, text=f"{str_chinese_names[prop]}:", width=columnwidth).grid(row=row, column=col,
-                                                                                                    sticky=tk.W, padx=5,
-                                                                                                    pady=2)
-                self.str_entries[prop] = ttk.Entry(recursion_group_tab, width=20)
-                self.str_entries[prop].grid(row=row, column=col + 1, sticky=tk.EW, padx=5, pady=2)
-                row += 1
-
-            row = 0
-            col = 0
-
-            bool_props = ["vectorized", "selective", "addMemo", "groupOverride", "useProbability", "caseSensitive",
-                          "matchWholeWords", "useGroupScoring"]
-            self.bool_vars = {}
-            col_count = 0
-            bool_chinese_names = {
-                "vectorized": "向量化",
-                "selective": "选择性",
-                "addMemo": "添加备注",
-                "groupOverride": "分组覆盖",
-                "useProbability": "使用概率",
-                "caseSensitive": "区分大小写",
-                "matchWholeWords": "匹配整个单词",
-                "useGroupScoring": "使用分组评分"
-            }
-            for prop in bool_props:
-                ttk.Label(numerical_bool_tab, text=f"{bool_chinese_names[prop]}:", width=columnwidth).grid(row=row, column=col,
-                                                                                                    sticky=tk.W, padx=5,
-                                                                                                    pady=2)
-                self.bool_vars[prop] = tk.BooleanVar()
-                check = ttk.Checkbutton(numerical_bool_tab, variable=self.bool_vars[prop], text=bool_chinese_names[prop])
-                check.grid(row=row, column=col + 1, sticky=tk.W, padx=5, pady=2)
-
-
-                col_count += 1
-                if col_count % 2 == 0:
-                    row += 1
-                    col = 0
-                else:
-                    col += 2
-
-            row = max(row, 4)
-            col = 0
-
-            int_props = ["order", "probability", "groupWeight", "cooldown", "delay",
-                         "depth", "scanDepth"]
-            self.int_entries = {}
-            col_count = 0
-            int_chinese_names = {
-                "order": "插入顺序", #  更准确的中文翻译
-                "probability": "概率",
-                "groupWeight": "分组权重",
-                "cooldown": "冷却时间",
-                "delay": "延迟",
-                "depth": "深度",
-                "scanDepth": "扫描深度"
-            }
-            for prop in int_props:
-                ttk.Label(numerical_bool_tab, text=f"{int_chinese_names[prop]}:", width=columnwidth).grid(row=row, column=col,
-                                                                                                    sticky=tk.W, padx=5,
-                                                                                                    pady=2)
-                self.int_entries[prop] = ttk.Entry(numerical_bool_tab, width=20)
-                self.int_entries[prop].grid(row=row, column=col + 1, sticky=tk.EW, padx=5, pady=2)
-
-                col_count += 1
-                if col_count % 2 == 0:
-                    row += 1
-                    col = 0
-                else:
-                    col += 2
+                col = 0
+            else:
+                col += 2
+        return row + (1 if col_count % 2 != 0 else 0)
 
     def load_worldbook(self):
         """Loads worldbook file."""
         initial_dir = find_sillytavern_worlds_path()
         file_path = filedialog.askopenfilename(
-            title="选择 Lorebook JSON 文件", #  对话框标题使用 Lorebook
+            title="选择 Lorebook JSON 文件", 
             filetypes=[("JSON files", "*.json")],
             initialdir=initial_dir
         )
@@ -569,7 +480,7 @@ class WorldBookUI:
         file_path = filedialog.asksaveasfilename(
             defaultextension=".json",
             filetypes=[("JSON files", "*.json")],
-            title="保存 Lorebook JSON 文件", #  对话框标题使用 Lorebook
+            title="保存 Lorebook JSON 文件", 
             initialdir=initial_dir
         )
         if file_path:
@@ -598,32 +509,42 @@ class WorldBookUI:
         self.keysecondary_entry.insert(0, ", ".join(entry.get('keysecondary', [])))
         self.comment_entry.insert(0, entry.get('comment', ''))
         self.content_text.insert(tk.INSERT, entry.get('content', ''))
-        self.position_combo.set(
-            next((key for key, value in self.world_book_manager.position_map_chinese.items() if value == entry.get(
-                'position', 1)), None) or "")
 
-        if self.use_advanced_mode.get():
-            self.constant_var.set(entry.get('constant', False))
-            self.disable_var.set(entry.get('disable', False))
-            self.role_combo.set(next((key for key, value in self.world_book_manager.role_map.items() if value == entry.get(
-                'role', None)), None) or "")
-            self.sticky_combo.set(
-                next((key for key, value in self.world_book_manager.sticky_map.items() if value == entry.get('sticky',
-                                                                                                             0)),
-                     None) or "")
-            self.selective_logic_combo.set(next((key for key, value in
-                                                 self.world_book_manager.selective_logic_map.items() if value == entry.get(
-                    'selectiveLogic', 0)), None) or "")
+        # 修复: 正确渲染插入位置
+        position_int = entry.get('position', 1)
+        rev_pos_map = {v: k for k, v in self.world_book_manager.POSITION_MAP_ENGLISH.items()}
+        english_pos = rev_pos_map.get(position_int)
+        if english_pos:
+            rev_chinese_map = {v: k for k, v in self.world_book_manager.POSITION_MAP_CHINESE.items()}
+            self.position_combo.set(rev_chinese_map.get(english_pos, ""))
+        else:
+            self.position_combo.set("")
 
-            for prop, var in self.bool_vars.items():
-                value = entry.get(prop)
-                var.set(bool(value) if value is not None else False) #  更安全地处理 None 值
+        self.constant_var.set(entry.get('constant', False))
+        self.disable_var.set(entry.get('disable', False))
+        self.role_combo.set(next((k for k, v in self.world_book_manager.ROLE_MAP.items() if v == entry.get(
+            'role', None)), None) or "")
+        self.sticky_combo.set(
+            next((k for k, v in self.world_book_manager.STICKY_MAP.items() if v == entry.get('sticky', 0)),
+                 None) or "")
+        self.selective_logic_combo.set(next((k for k, v in
+                                             self.world_book_manager.SELECTIVE_LOGIC_MAP.items() if v == entry.get(
+                'selectiveLogic', 0)), None) or "")
 
-            for prop, entry_field in self.int_entries.items():
-                entry_field.insert(0, str(entry.get(prop, 0)))
+        for prop, var in self.bool_vars.items():
+            value = entry.get(prop)
+            var.set(bool(value) if value is not None else False) #  更安全地处理 None 值
 
-            for prop, entry_field in self.str_entries.items():
-                entry_field.insert(0, entry.get(prop, ''))
+        # 修复：填充递归选项的勾选状态
+        for prop, var in self.recursion_vars.items():
+            default_value = True if prop == "preventRecursion" else False
+            var.set(entry.get(prop, default_value))
+
+        for prop, entry_field in self.int_entries.items():
+            entry_field.insert(0, str(entry.get(prop, 0)))
+
+        for prop, entry_field in self.str_entries.items():
+            entry_field.insert(0, entry.get(prop, ''))
 
     def clear_edit_fields(self):
         """Clears all edit fields."""
@@ -633,19 +554,21 @@ class WorldBookUI:
         self.content_text.delete(1.0, tk.END)
         self.position_combo.set("")
 
-        if self.use_advanced_mode.get():
-            self.constant_var.set(False)
-            self.disable_var.set(False)
-            self.role_combo.set("")
-            self.sticky_combo.set("")
-            self.selective_logic_combo.set("")
+        self.constant_var.set(False)
+        self.disable_var.set(False)
+        self.role_combo.set("")
+        self.sticky_combo.set("")
+        self.selective_logic_combo.set("")
 
-            for var in self.bool_vars.values():
-                var.set(False)
-            for entry_field in self.int_entries.values():
-                entry_field.delete(0, tk.END)
-            for entry_field in self.str_entries.values():
-                entry_field.delete(0, tk.END)
+        for var in self.bool_vars.values():
+            var.set(False)
+        # 修复：清空递归选项
+        for var in self.recursion_vars.values():
+            var.set(False)
+        for entry_field in self.int_entries.values():
+            entry_field.delete(0, tk.END)
+        for entry_field in self.str_entries.values():
+            entry_field.delete(0, tk.END)
 
     def save_entry(self):
         """Saves current entry data to worldbook data."""
@@ -667,27 +590,34 @@ class WorldBookUI:
                              k.strip()],
             'comment': self.comment_entry.get(),
             'content': self.content_text.get(1.0, tk.END).strip(),
-            'position': self.world_book_manager.position_map_english[
-                self.position_combo.get()] if self.position_combo.get() else 1,
+            'position': self.world_book_manager.POSITION_MAP_ENGLISH.get(
+                self.world_book_manager.POSITION_MAP_CHINESE.get(self.position_combo.get()), 1),
         }
 
-        if self.use_advanced_mode.get():
-            updated_info['constant'] = self.constant_var.get()
-            updated_info['disable'] = self.disable_var.get()
-            updated_info['role'] = self.role_combo.get()
-            updated_info['sticky'] = self.sticky_combo.get()
-            updated_info['selectiveLogic'] = self.world_book_manager.selective_logic_map[
-                self.selective_logic_combo.get()] if self.selective_logic_combo.get() else 0
+        updated_info['constant'] = self.constant_var.get()
+        updated_info['disable'] = self.disable_var.get()
 
-            for prop, var in self.bool_vars.items():
-                updated_info[prop] = var.get()
-            for prop, entry_field in self.int_entries.items():
-                try:
-                    updated_info[prop] = int(entry_field.get())
-                except ValueError:
-                    updated_info[prop] = 0
-            for prop, entry_field in self.str_entries.items():
-                updated_info[prop] = entry_field.get()
+        selected_role = self.role_combo.get()
+        updated_info['role'] = self.world_book_manager.ROLE_MAP.get(selected_role)
+
+        selected_sticky = self.sticky_combo.get()
+        updated_info['sticky'] = self.world_book_manager.STICKY_MAP.get(selected_sticky, 0)
+
+        selected_logic = self.selective_logic_combo.get()
+        updated_info['selectiveLogic'] = self.world_book_manager.SELECTIVE_LOGIC_MAP.get(selected_logic, 0)
+
+        for prop, var in self.bool_vars.items():
+            updated_info[prop] = var.get()
+        # 修复：保存递归选项的状态
+        for prop, var in self.recursion_vars.items():
+            updated_info[prop] = var.get()
+        for prop, entry_field in self.int_entries.items():
+            try:
+                updated_info[prop] = int(entry_field.get())
+            except ValueError:
+                updated_info[prop] = 0
+        for prop, entry_field in self.str_entries.items():
+            updated_info[prop] = entry_field.get()
 
         if self.world_book_manager.update_entry(uid, updated_info):
             self.update_entry_list()
@@ -743,68 +673,6 @@ class WorldBookUI:
         for text in display_texts:
             self.entry_listbox.insert(tk.END, text)
 
-    def show_instructions_gui(self):
-        """Displays the instructions GUI."""
-        instruction_window = tk.Toplevel(self.root)
-        instruction_window.title("使用说明")
-
-        instruction_text = scrolledtext.ScrolledText(instruction_window, wrap=tk.WORD, height=25, width=80,
-                                                     font=font.Font(size=11), spacing3=5)
-        instruction_text.pack(padx=20, pady=20, expand=True, fill=tk.BOTH)
-        instruction_text.config(state=tk.DISABLED)
-
-        instructions = """
-    SillyTavern 世界书编辑器 (Lorebook Editor) - 使用说明
-
-    本工具用于编辑 SillyTavern 的世界书 (Lorebook) JSON 文件。
-
-    世界信息 (Lorebooks) 增强 AI 对世界细节的理解。
-    它像动态字典，仅当消息文本出现与条目相关的关键词时，
-    条目信息才被插入。SillyTavern 引擎激活 Lore 并无缝整合到提示词，
-    为 AI 提供背景信息。
-
-    **注意**: 世界信息引导 AI 找到期望 Lore，但不保证出现在输出消息中。
-
-    **进阶提示**:
-    - AI 不在上下文中插入触发关键词。
-    - 每个世界书条目应是全面、独立的描述。
-    - 条目间可相互链接和参考，构建丰富世界传说 (world lore)。
-    - 为节约 Token，条目内容应简洁，建议每条不超过 50 Token。
-
-    **角色 Lore (Character Lore)**:
-    - 可将世界书文件分配给角色，作为其所有对话 (含群组) 的专用 Lore 源。
-    - 在“角色管理”面板，点击“地球仪”按钮，选择“世界信息”并“确定”即可。
-
-    **角色 Lore 插入策略**:
-    生成 AI 回复时，角色世界书条目与全局世界书条目结合：
-    - **均匀排序 (默认)**: 所有条目按插入顺序排序，忽略源文件。
-    - **角色 Lore 优先**: 角色世界书条目先包含并排序，后接全局世界书条目。
-    - **全局 Lore 优先**: 全局世界书条目先包含并排序，后接角色世界书条目。
-
-    **世界书条目字段说明**:
-
-    - **关键词 (Keywords)**: 触发条目的关键词列表，不区分大小写 (可配置)。
-    - **次要关键词 (Secondary Keywords)**: 与主关键词联用的补充关键词列表 (见“选择性”)。
-    - **条目内容 (Content)**: 条目激活时插入提示词的文本。
-    - **插入顺序 (Order)**: 数值，定义多条目同时激活时的优先级，值越大优先级越高，越靠近上下文末尾。
-    - **插入位置 (Position)**:
-        - 角色定义前: 条目在角色描述和场景前插入，对对话影响适中。
-        - 角色定义后: 条目在角色描述和场景后插入，对对话影响较大。
-    - **注释 (Comment)**: 文本注释，不发送给 AI，仅为方便用户编辑。
-    - **常驻 (Constant)**: 启用后，条目始终出现在提示词中。
-    - **选择性 (Selective)**: 启用后，需同时激活关键词和次要关键词才插入条目 (无次要关键词则忽略)。
-    - **扫描深度 (Scan Depth)**: 定义扫描多少条消息记录以查找关键词 (最多 10 组消息)。
-    - **Token 预算 (Token Budget)**: 条目一次可用 Token 数量 (超出预算则停止激活更多条目)。
-        - 常驻条目优先插入，其次是高优先级条目，直接提及关键词的条目优先级更高。
-    - **递归扫描 (Recursive Scanning)**: 允许条目通过在内容中提及关键词来激活其他条目。
-    - **关键词区分大小写 (Case Sensitive Keywords)**: 启用后，关键词需与条目定义的大小写匹配。
-    - **匹配整个单词 (Match Whole Words)**: 启用后，仅匹配搜索文本中的整个单词。
-
-        """ #  使用 Markdown 格式化说明文档
-        instruction_text.config(state=tk.NORMAL)
-        instruction_text.insert(tk.END, instructions)
-        instruction_text.config(state=tk.DISABLED)
-        instruction_text.mark_set(" DocStart", "1.0")
 
 
 class WorldBookApp:
@@ -847,9 +715,30 @@ def find_sillytavern_worlds_path(initial_dir=None):
     return None
 
 
-import re
-
 if __name__ == "__main__":
     root = tk.Tk()
     app = WorldBookApp(root)
-    app.run()
+
+    # 检查启动模式
+    if len(sys.argv) > 1:
+        # --- 拖放模式 ---
+        input_path = sys.argv[1]
+
+        # 验证路径
+        if os.path.isfile(input_path) and input_path.lower().endswith('.json'):
+            # 直接加载文件，然后启动UI
+            if app.world_book_manager.load_worldbook(input_path):
+                app.ui.update_entry_list()
+                app.run()
+            else:
+                # 如果加载失败，app.world_book_manager 内部会显示消息框
+                # 此处直接退出即可
+                root.destroy()
+                sys.exit(1)
+        else:
+            messagebox.showerror("错误", "请拖放一个有效的 .json 文件。")
+            root.destroy()
+            sys.exit(1)
+    else:
+        # --- 交互模式 ---
+        app.run()
