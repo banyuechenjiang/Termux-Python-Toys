@@ -1,0 +1,95 @@
+# 功能点：实现拖放文件/文件夹启动脚本
+# Principle, Key Component, and Implementation Flow
+
+# 1. 核心原理 (Principle)
+principle: |
+  当用户将一个文件或文件夹拖拽到脚本（.py 或 .exe）图标上时，操作系统会执行该脚本，
+  并将被拖拽项的“完整路径”作为一个“命令行参数”传递给脚本。
+  脚本通过捕获这个参数来获取用户输入，从而实现交互。
+
+# 2. 关键组件 (Key Component)
+key_component:
+  name: sys.argv
+  description: Python `sys` 模块中的一个列表，用于存储所有传递给脚本的命令行参数。
+  structure:
+    - index: 0
+      content: "sys.argv[0] 永远是脚本自身的名称 (例如: your_script.py)。"
+    - index: 1
+      content: "sys.argv[1] 是第一个参数，即被拖拽项的完整路径。"
+    - index: "2..."
+      content: "sys.argv[2] 及之后是后续参数（在多文件拖放时可能用到）。"
+
+# 3. 实现流程 (Implementation Flow)
+implementation_flow:
+  - step: 1. 导入模块
+    details: "导入 `sys` 用于访问命令行参数，导入 `os` 用于路径判断。"
+    code: "import sys, os"
+
+  - step: 2. 检查启动模式
+    details: "在 `if __name__ == '__main__':` 块中，通过检查 `len(sys.argv)` 的长度来判断脚本是如何被启动的。"
+    logic:
+      - condition: "len(sys.argv) > 1"
+        meaning: "检测到命令行参数，判定为“拖放模式”。"
+      - condition: "len(sys.argv) == 1"
+        meaning: "无额外参数，判定为“普通双击/交互模式”。"
+
+  - step: 3. 获取并验证路径 (在“拖放模式”下)
+    details: "从 `sys.argv[1]` 获取路径，并对其有效性进行验证。"
+    validation_steps:
+      - "获取路径: `input_path = sys.argv[1]`"
+      - "判断是否为文件夹: `os.path.isdir(input_path)`"
+      - "判断是否为文件: `os.path.isfile(input_path)`"
+      - "【关键】如果是文件，则进一步检查文件类型: `input_path.lower().endswith('.png')`"
+      - "处理无效路径或错误的文件类型：给出明确提示并退出 `sys.exit()`。"
+
+  - step: 4. 确定处理目标并执行
+    details: "根据验证结果，确定要处理的目标目录，并调用核心功能函数。"
+    actions:
+      - if: "是文件夹"
+        then: "目标目录就是 `input_path` 本身。"
+      - if: "是符合要求的单个文件 (如 .png)"
+        then: "目标目录是该文件所在的父目录 `os.path.dirname(input_path)`。"
+      - finally: "调用主处理函数，如 `rename_and_detect_duplicates_recursive(target_directory, ...)`。"
+
+# 4. 最小化代码示例 (Code Example)
+code_example: |
+  import sys
+  import os
+
+  def process_directory(path):
+      print(f"核心功能已调用，正在处理目录: {path}")
+      # 此处应为你的核心处理逻辑...
+
+  def run_interactive_menu():
+      print("进入交互式菜单模式...")
+      # 此处应为你的菜单逻辑...
+
+  if __name__ == "__main__":
+      # 步骤 2: 检查启动模式
+      if len(sys.argv) > 1:
+          # --- 拖放模式 ---
+          # 步骤 3: 获取路径
+          input_path = sys.argv[1]
+          target_directory = None
+
+          # 步骤 3: 验证路径
+          if os.path.isdir(input_path):
+              target_directory = input_path
+          elif os.path.isfile(input_path):
+              if input_path.lower().endswith('.png'): # 关键的文件类型检查
+                  target_directory = os.path.dirname(input_path)
+              else:
+                  input("错误：请拖放PNG文件或文件夹。\n按回车退出。")
+                  sys.exit(1)
+          else:
+              input("错误：路径无效。\n按回车退出。")
+              sys.exit(1)
+
+          # 步骤 4: 执行
+          if target_directory:
+              process_directory(target_directory)
+              input("\n处理完成。按回车退出。")
+
+      else:
+          # --- 交互模式 ---
+          run_interactive_menu()

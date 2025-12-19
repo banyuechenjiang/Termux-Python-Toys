@@ -6,7 +6,7 @@ set SCRIPT_NAME=zTasker.py
 
 REM 设置 Python 解释器的路径 (如果 'python' 命令不在系统 PATH 中，或者您想指定特定的 Python 版本)
 REM 如果 'python' 已经在 PATH 中，可以将下一行注释掉 (前面加 REM) 或留空
-set PYTHON_COMMAND=python 
+REM set PYTHON_COMMAND=python 
 if defined PYTHON_EXE set PYTHON_COMMAND=%PYTHON_EXE%
 
 REM --- 检查管理员权限并尝试提升 ---
